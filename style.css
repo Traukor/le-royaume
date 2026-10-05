@@ -1,0 +1,116 @@
+:root {
+  --bg: #0d1a1f;
+  --panel: #13252c;
+  --text: #e6e1d3;
+  --muted: #a9a594;
+  --gold: #d4af37;
+  --gold-dark: #8a6d1d;
+  --discord: #5865f2;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 17px/1.7 "Lora", Georgia, serif;
+}
+
+h1, h2, h3, nav, .btn { font-family: "Cinzel", serif; }
+h1, h2, h3 { color: var(--gold); line-height: 1.25; }
+a { color: var(--gold); }
+img { max-width: 100%; display: block; }
+
+nav {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px;
+  padding: 10px 24px;
+  background: rgba(13, 26, 31, .92);
+  border-bottom: 1px solid var(--gold-dark);
+}
+nav .brand { display: flex; align-items: center; gap: 10px; margin-right: auto; text-decoration: none; font-size: 1.2rem; }
+nav .brand img { width: 40px; }
+nav a { text-decoration: none; }
+nav a:hover, nav a[aria-current] { color: #fff; }
+
+.hero {
+  min-height: 85vh;
+  display: grid; place-items: end center; text-align: center;
+  padding: 60px 16px;
+  background: linear-gradient(transparent 35%, rgba(13, 26, 31, .7) 70%, var(--bg)), url(img/wow-forever.jpg) center top / cover;
+}
+.hero img { width: min(180px, 45vw); margin: 0 auto 16px; filter: drop-shadow(0 0 30px rgba(212, 175, 55, .35)); }
+.hero h1 { font-size: clamp(2.2rem, 7vw, 4rem); margin: 0; text-shadow: 0 2px 10px #000; }
+.hero p { font-size: 1.25rem; max-width: 640px; margin: 12px auto 28px; text-shadow: 0 1px 6px #000; }
+
+.btn {
+  display: inline-block; padding: 12px 28px; margin: 6px;
+  border: 1px solid var(--gold); border-radius: 4px;
+  text-decoration: none; font-weight: 700;
+}
+.btn.discord { background: var(--discord); border-color: var(--discord); color: #fff; }
+.btn:hover { filter: brightness(1.15); }
+
+main, section { max-width: 900px; margin: 0 auto; padding: 40px 16px; }
+section h2 { text-align: center; font-size: 2rem; }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; }
+.card { background: var(--panel); border: 1px solid var(--gold-dark); border-radius: 6px; padding: 20px; }
+.card h3 { margin-top: 0; }
+
+.gallery { max-width: 1000px; text-align: center; }
+.gallery > p { margin-top: 0; }
+.carousel { position: relative; }
+.track { position: relative; aspect-ratio: 16 / 9; border: 1px solid var(--gold-dark); border-radius: 4px; background: var(--panel); }
+.track figure { display: none; }
+.book { position: absolute; inset: 0; perspective: 3000px; }
+/* Livre : chaque page est faite de deux moitiés d'image, la reliure est au milieu */
+.half { position: absolute; top: 0; bottom: 0; width: 50%; overflow: hidden; backface-visibility: hidden; }
+.half.left { left: 0; }
+.half.right { right: 0; }
+.half img { width: 200%; max-width: none; height: 100%; object-fit: cover; }
+.half.right img { margin-left: -100%; }
+.half::after { content: ""; position: absolute; inset: 0; pointer-events: none; }
+.half.left::after { background: linear-gradient(to right, transparent 75%, rgba(0, 0, 0, .6)); }
+.half.right::after { background: linear-gradient(to left, transparent 75%, rgba(0, 0, 0, .6)); }
+.leaf { position: absolute; top: 0; bottom: 0; left: 50%; width: 50%; z-index: 2; transform-origin: left center; transform-style: preserve-3d; }
+.leaf .half { left: 0; width: 100%; }
+.leaf .back { transform: rotateY(180deg); }
+.leaf.fwd { animation: leaf-turn .9s ease-in-out forwards; }
+.leaf.bwd { animation: leaf-turn .9s ease-in-out reverse forwards; }
+@keyframes leaf-turn { from { transform: rotateY(0); } to { transform: rotateY(-180deg); } }
+@media (prefers-reduced-motion: reduce) { .leaf { animation-duration: 1ms !important; } }
+.track figcaption { position: absolute; bottom: 12px; left: 16px; font: 700 1.3rem "Cinzel", serif; color: #fff; text-shadow: 0 1px 4px #000; }
+.carousel button { position: absolute; z-index: 3; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; border: 1px solid var(--gold); border-radius: 50%; background: rgba(13, 26, 31, .75); color: var(--gold); font-size: 1.8rem; line-height: 1; cursor: pointer; }
+.carousel button:hover { background: var(--bg); }
+.carousel .prev { left: 12px; }
+.carousel .next { right: 12px; }
+.gallery h3 { margin-top: 40px; }
+.video { display: block; width: 100%; aspect-ratio: 16 / 9; border: 1px solid var(--gold-dark); border-radius: 4px; }
+
+.join { text-align: center; }
+.join ol { text-align: left; max-width: 600px; margin: 0 auto 24px; }
+
+.charte h1 { text-align: center; font-size: 2.5rem; }
+.charte h2 { border-bottom: 1px solid var(--gold-dark); padding-bottom: 6px; margin-top: 48px; }
+
+footer { text-align: center; padding: 30px 16px; color: var(--muted); font-size: .9rem; border-top: 1px solid var(--gold-dark); }
+
+@media (max-width: 600px) {
+  nav { gap: 8px 14px; padding: 10px 16px; }
+  .hero { min-height: 70vh; }
+  nav .brand span { display: none; }
+}
+
+.charte .intro { font-style: italic; text-align: center; }
+.commandements { padding-left: 0; list-style: none; counter-reset: cmd; }
+.commandements li { counter-increment: cmd; position: relative; padding: 14px 16px 2px 64px; margin-bottom: 12px; background: var(--panel); border-left: 3px solid var(--gold); border-radius: 4px; }
+.commandements li::before { content: counter(cmd, upper-roman); position: absolute; left: 14px; top: 12px; font: 700 1.3rem "Cinzel", serif; color: var(--gold); }
+.commandements strong { font-family: "Cinzel", serif; color: var(--gold); }
+.commandements p { margin: 6px 0 12px; }
+
+.raids { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-bottom: 16px; }
+.raids button { font: 700 .9rem "Cinzel", serif; padding: 8px 14px; border: 1px solid var(--gold-dark); border-radius: 4px; background: var(--panel); color: var(--gold); cursor: pointer; }
+.raids button:hover { border-color: var(--gold); }
+.raids button[aria-selected="true"] { background: var(--gold); color: var(--bg); border-color: var(--gold); }
