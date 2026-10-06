@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Espace officiers — Le Royaume</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" type="image/png" href="img/favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Lora:ital@0;1&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav>
+    <a class="brand" href="index.html"><img src="img/logo.png" alt=""><span>Le Royaume</span></a>
+    <a href="index.html">Accueil</a>
+    <a href="charte.html">Charte</a>
+    <a href="index.html#rejoindre">Nous rejoindre</a>
+  </nav>
+
+  <main class="espace">
+    <h1>Espace officiers</h1>
+    <div id="etat" aria-live="polite"><p>Chargement…</p></div>
+  </main>
+
+  <footer>Le Royaume — guilde francophone sur World of Warcraft Forever.<br>World of Warcraft est une marque de Blizzard Entertainment.</footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    // Adresse et clé publique du projet Supabase (publiques par conception : la sécurité repose
+    // sur la vérification côté serveur, pas sur ces valeurs).
+    const SUPABASE_URL = 'https://gobvfbwuesskhrgcrzjd.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_BJwMSdlBLfltRGA-GCELrQ_MbyCM1x_';
+
+    const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    const etat = document.getElementById('etat');
+
+    // remplace le contenu de la zone d'état ; le texte passe par textContent (pas d'injection possible)
+    const afficher = (texte, bouton) => {
+      const p = document.createElement('p');
+      p.textContent = texte;
+      etat.replaceChildren(p);
+      if (bouton) etat.append(bouton);
+    };
+    const bouton = (texte, classe, action) => {
+      const b = document.createElement('button');
+      b.className = 'btn ' + classe;
+      b.textContent = texte;
+      b.onclick = action;
+      return b;
+    };
+    const connexion = () => sb.auth.signInWithOAuth({
+      provider: 'discord',
+      options: { scopes: 'identify', redirectTo: location.origin + location.pathname },
+    });
+    const deconnexion = async () => { await sb.auth.signOut(); verifier(); };
+
+    async function verifier() {
+      const { data: { session } } = await sb.auth.getSession();
+      if (!session) return afficher('Cet espace est réservé aux officiers de la guilde. Connectez-vous avec votre compte Discord.',
+        bouton('Se connecter avec Discord', 'discord', connexion));
+
+      afficher('Vérification de votre rôle sur le Discord de la guilde…');
+      const { data, error } = await sb.functions.invoke('verifier-role');
+      if (error) return afficher('La vérification a échoué. Réessayez plus tard.', bouton('Se déconnecter', '', deconnexion));
+      if (!data.membre) return afficher("Ce compte Discord n'est pas sur le serveur de la guilde.", bouton('Se déconnecter', '', deconnexion));
+      if (!data.autorise) return afficher(`Bonjour ${data.pseudo} : cet espace est réservé aux officiers.`, bouton('Se déconnecter', '', deconnexion));
+      afficher(`Bienvenue ${data.pseudo}, accès officier confirmé.`, bouton('Se déconnecter', '', deconnexion));
+    }
+
+    sb.auth.onAuthStateChange(() => setTimeout(verifier));
+  </script>
+</body>
+</html>
