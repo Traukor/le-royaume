@@ -35,9 +35,9 @@ nav a { text-decoration: none; }
 nav a:hover, nav a[aria-current] { color: #fff; }
 
 .hero {
-  min-height: 85vh;
+  min-height: max(85vh, calc(22vw + 480px)); /* le logo WoW du fond descend avec la largeur : le contenu reste dessous */
   display: grid; place-items: end center; text-align: center;
-  padding: 60px 16px;
+  padding: 60px 16px 20px;
   background: linear-gradient(transparent 35%, rgba(13, 26, 31, .7) 70%, var(--bg)), url(img/wow-forever.jpg) center top / cover;
 }
 .hero img { width: min(180px, 45vw); margin: 0 auto 16px; filter: drop-shadow(0 0 30px rgba(212, 175, 55, .35)); }
