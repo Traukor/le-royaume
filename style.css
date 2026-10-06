@@ -35,12 +35,18 @@ nav a { text-decoration: none; }
 nav a:hover, nav a[aria-current] { color: #fff; }
 
 .hero {
-  min-height: max(85vh, calc(22vw + 480px)); /* le logo WoW du fond descend avec la largeur : le contenu reste dessous */
+  /* le bandeau tient dans l'écran (sous la barre de menu de ~60px) : les boutons restent visibles */
+  min-height: calc(100vh - 60px);
+  /* bas du logo WoW dans l'image de fond (cover, calée en haut) : 39.6 % de sa hauteur,
+     soit 22.3vw quand l'image est mise à l'échelle par la largeur, 39.6 % du bandeau sinon */
+  --logo-wow: max(22.3vw, 0.396 * (100vh - 60px));
+  --texte: 270px; /* hauteur du titre, du texte et des boutons sous le blason */
   display: grid; place-items: end center; text-align: center;
   padding: 60px 16px 20px;
   background: linear-gradient(transparent 35%, rgba(13, 26, 31, .7) 70%, var(--bg)), url(img/wow-forever.jpg) center top / cover;
 }
-.hero img { width: min(180px, 45vw); margin: 0 auto 16px; filter: drop-shadow(0 0 30px rgba(212, 175, 55, .35)); }
+.hero img { /* blason : la place libre sous le logo WoW, moins le titre, le texte et les boutons */
+  width: clamp(64px, 100vh - 60px - var(--texte) - var(--logo-wow), min(180px, 45vw)); margin: 0 auto 16px; filter: drop-shadow(0 0 30px rgba(212, 175, 55, .35)); }
 .hero h1 { font-size: clamp(2.2rem, 7vw, 4rem); margin: 0; text-shadow: 0 2px 10px #000; }
 .hero p { font-size: 1.25rem; max-width: 640px; margin: 12px auto 28px; text-shadow: 0 1px 6px #000; }
 
@@ -98,9 +104,17 @@ section h2 { text-align: center; font-size: 2rem; }
 
 footer { text-align: center; padding: 30px 16px; color: var(--muted); font-size: .9rem; border-top: 1px solid var(--gold-dark); }
 
+/* écrans peu hauts (portables) : titre et marges plus compacts pour laisser la place au blason */
+@media (max-height: 800px) {
+  .hero { --texte: 200px; padding-bottom: 12px; }
+  .hero img { margin-bottom: 8px; }
+  .hero h1 { font-size: clamp(2.2rem, 7vw, 2.6rem); }
+  .hero p { font-size: 1.1rem; margin: 6px auto 14px; }
+  .hero .btn { padding: 10px 22px; margin: 4px; }
+}
+
 @media (max-width: 600px) {
   nav { gap: 8px 14px; padding: 10px 16px; }
-  .hero { min-height: 70vh; }
   nav .brand span { display: none; }
 }
 
