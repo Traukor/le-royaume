@@ -118,3 +118,5 @@ footer { text-align: center; padding: 30px 16px; color: var(--muted); font-size:
 .raids.exts button { font-size: 1.05rem; padding: 10px 20px; }
 .raids.exts { margin-bottom: 10px; }
 .raids.exts button { font-size: 1.05rem; padding: 10px 20px; }
+
+.moment { max-width: 1000px; text-align: center; }
