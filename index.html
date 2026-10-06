@@ -202,19 +202,40 @@
       book.className = 'book';
       t.append(book);
 
+      // Lecteur YouTube unique, posé au-dessus du livre. Il commence à charger dès que la page vers
+      // une vidéo se met à tourner, reste invisible (la miniature est dessous) et n'apparaît en fondu
+      // qu'une fois chargé : pas d'écran noir entre la fin de la page et l'affichage du lecteur.
+      const player = document.createElement('iframe');
+      player.className = 'video-page';
+      player.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
+      player.referrerPolicy = 'strict-origin-when-cross-origin';
+      player.allowFullscreen = true;
+      t.append(player);
+      const loadVideo = vid => {
+        if (player.dataset.v === vid) return;
+        player.dataset.v = vid;
+        player.dataset.ready = '';
+        player.title = figs.find(f => f.dataset.video === vid).querySelector('img').alt;
+        player.src = `https://www.youtube.com/embed/${vid}`;
+      };
+      const stopVideo = () => {
+        player.classList.remove('on');
+        if (player.dataset.v) { player.dataset.v = ''; player.removeAttribute('src'); }
+      };
+      player.onload = () => {
+        if (!player.dataset.v) return;
+        player.dataset.ready = '1';
+        if (!busy && figs[cur].dataset.video === player.dataset.v) player.classList.add('on');
+      };
+
       const settle = () => {
         book.replaceChildren(half(figs[cur], 'left'), half(figs[cur], 'right'));
         const vid = figs[cur].dataset.video;
         if (vid) {
-          // la page tourne avec la miniature ; le lecteur n'apparaît qu'une fois la page posée
-          const f = document.createElement('iframe');
-          f.className = 'video-page';
-          f.src = `https://www.youtube.com/embed/${vid}`;
-          f.title = figs[cur].querySelector('img').alt;
-          f.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
-          f.referrerPolicy = 'strict-origin-when-cross-origin';
-          f.allowFullscreen = true;
-          book.append(f);
+          loadVideo(vid);
+          if (player.dataset.ready) player.classList.add('on');
+          // filet de sécurité : si YouTube tarde à signaler son chargement, on affiche quand même le lecteur
+          setTimeout(() => { if (!busy && figs[cur].dataset.video === player.dataset.v) player.classList.add('on'); }, 2500);
         }
         const f = figs[cur];
         for (const e in extTabs) extTabs[e].setAttribute('aria-selected', e === f.dataset.ext);
@@ -232,6 +253,8 @@
         if (busy || to === cur) return;
         busy = true;
         const a = figs[cur], b = figs[to];
+        player.classList.remove('on');
+        if (b.dataset.video) loadVideo(b.dataset.video); else stopVideo();
         const leaf = document.createElement('div');
         if (dir > 0) {
           // en avant : la moitié droite de A se rabat à gauche, son dos est la moitié gauche de B
