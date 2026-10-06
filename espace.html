@@ -7,12 +7,13 @@
   <meta name="robots" content="noindex">
   <link rel="icon" type="image/png" href="img/favicon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Lora:ital@0;1&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <nav>
-    <a class="brand" href="index.html"><img src="img/logo.png" alt=""><span>Le Royaume</span></a>
+    <a class="brand" href="index.html"><img src="img/logo.webp" alt=""><span>Le Royaume</span></a>
     <a href="index.html">Accueil</a>
     <a href="charte.html">Charte</a>
     <a href="index.html#rejoindre">Nous rejoindre</a>
@@ -25,7 +26,8 @@
 
   <footer>Le Royaume — guilde francophone sur World of Warcraft Forever.<br>World of Warcraft est une marque de Blizzard Entertainment.</footer>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"
+          integrity="sha384-Rj26LVGvoeRVR6+mwQmFfcR3QOBEwT+ZmuCWpuiqeTzJpCs0ER4ITAWGb4Hiy3Ok" crossorigin="anonymous"></script>
   <script>
     // Adresse et clé publique du projet Supabase (publiques par conception : la sécurité repose
     // sur la vérification côté serveur, pas sur ces valeurs).
@@ -53,7 +55,7 @@
       provider: 'discord',
       options: { scopes: 'identify', redirectTo: location.origin + location.pathname },
     });
-    const deconnexion = async () => { await sb.auth.signOut(); verifier(); };
+    const deconnexion = () => sb.auth.signOut(); // l'événement SIGNED_OUT relance verifier()
 
     async function verifier() {
       const { data: { session } } = await sb.auth.getSession();
@@ -68,7 +70,10 @@
       afficher(`Bienvenue ${data.pseudo}, accès officier confirmé.`, bouton('Se déconnecter', '', deconnexion));
     }
 
-    sb.auth.onAuthStateChange(() => setTimeout(verifier));
+    // une vérification par changement réel de session (pas au simple rafraîchissement du jeton)
+    sb.auth.onAuthStateChange(evt => {
+      if (['INITIAL_SESSION', 'SIGNED_IN', 'SIGNED_OUT'].includes(evt)) setTimeout(verifier);
+    });
   </script>
 </body>
 </html>

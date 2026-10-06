@@ -8,7 +8,7 @@
 //   DISCORD_ROLE_IDS   les identifiants des rôles autorisés, séparés par des virgules
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
-const ORIGINES = ["https://le-royaume.fr", "http://localhost:8000"];
+const ORIGINES = ["https://le-royaume.fr"];
 
 Deno.serve(async (req) => {
   const origin = req.headers.get("Origin") ?? "";

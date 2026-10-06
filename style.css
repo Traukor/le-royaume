@@ -37,16 +37,19 @@ nav a:hover, nav a[aria-current] { color: #fff; }
 .hero {
   /* le bandeau tient dans l'écran (sous la barre de menu de ~60px) : les boutons restent visibles */
   min-height: calc(100vh - 60px);
+  min-height: calc(100svh - 60px); /* svh : hauteur sans la barre d'adresse mobile */
   /* bas du logo WoW dans l'image de fond (cover, calée en haut) : 39.6 % de sa hauteur,
      soit 22.3vw quand l'image est mise à l'échelle par la largeur, 39.6 % du bandeau sinon */
   --logo-wow: max(22.3vw, 0.396 * (100vh - 60px));
+  --logo-wow: max(22.3vw, 0.396 * (100svh - 60px));
   --texte: 270px; /* hauteur du titre, du texte et des boutons sous le blason */
   display: grid; place-items: end center; text-align: center;
   padding: 60px 16px 20px;
   background: linear-gradient(transparent 35%, rgba(13, 26, 31, .7) 70%, var(--bg)), url(img/wow-forever.jpg) center top / cover;
 }
 .hero img { /* blason : la place libre sous le logo WoW, moins le titre, le texte et les boutons */
-  width: clamp(64px, 100vh - 60px - var(--texte) - var(--logo-wow), min(180px, 45vw)); margin: 0 auto 16px; filter: drop-shadow(0 0 30px rgba(212, 175, 55, .35)); }
+  width: clamp(64px, 100vh - 60px - var(--texte) - var(--logo-wow), min(180px, 45vw));
+  width: clamp(64px, 100svh - 60px - var(--texte) - var(--logo-wow), min(180px, 45vw)); margin: 0 auto 16px; filter: drop-shadow(0 0 30px rgba(212, 175, 55, .35)); }
 .hero h1 { font-size: clamp(2.2rem, 7vw, 4rem); margin: 0; text-shadow: 0 2px 10px #000; }
 .hero p { font-size: 1.25rem; max-width: 640px; margin: 12px auto 28px; text-shadow: 0 1px 6px #000; }
 
