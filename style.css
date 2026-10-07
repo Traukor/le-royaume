@@ -137,7 +137,9 @@ footer { text-align: center; padding: 30px 16px; color: var(--muted); font-size:
 /* changement d'extension : les noms de raids réapparaissent (hidden → visible) en fondu décalé */
 .raids:not(.exts) button { animation: raid-in .45s ease both; animation-delay: calc(var(--i, 0) * 70ms); }
 @keyframes raid-in { from { opacity: 0; transform: translateY(6px); } }
-@media (prefers-reduced-motion: reduce) { .raids:not(.exts) button { animation: none; } }
+/* … et s'effacent pendant que la page tourne (doit rester < durée de leaf-turn) */
+.raids:not(.exts) button.out { animation: none; opacity: 0; transform: translateY(-6px); transition: opacity .3s ease, transform .3s ease; }
+@media (prefers-reduced-motion: reduce) { .raids:not(.exts) button, .raids:not(.exts) button.out { animation: none; transition: none; } }
 
 .moment { max-width: 1000px; text-align: center; }
 

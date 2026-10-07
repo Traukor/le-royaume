@@ -253,6 +253,7 @@
         const f = figs[cur];
         for (const e in extTabs) extTabs[e].setAttribute('aria-selected', e === f.dataset.ext);
         for (const k in raidTabs) {
+          raidTabs[k].classList.remove('out');
           raidTabs[k].setAttribute('aria-selected', k === key(f));
           raidTabs[k].hidden = !k.startsWith(f.dataset.ext + '|');
         }
@@ -266,6 +267,8 @@
         if (busy || to === cur) return;
         busy = true;
         const a = figs[cur], b = figs[to];
+        // changement d'extension : les raids actuels s'effacent pendant que la page tourne
+        if (a.dataset.ext !== b.dataset.ext) for (const k in raidTabs) raidTabs[k].classList.add('out');
         player.classList.remove('on');
         if (b.dataset.video) loadVideo(b.dataset.video); else stopVideo();
         const leaf = document.createElement('div');
