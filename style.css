@@ -134,6 +134,10 @@ footer { text-align: center; padding: 30px 16px; color: var(--muted); font-size:
 .raids button[aria-selected="true"] { background: var(--gold); color: var(--bg); border-color: var(--gold); }
 .raids.exts { margin-bottom: 10px; }
 .raids.exts button { font-size: 1.05rem; padding: 10px 20px; }
+/* changement d'extension : les noms de raids réapparaissent (hidden → visible) en fondu décalé */
+.raids:not(.exts) button { animation: raid-in .45s ease both; animation-delay: calc(var(--i, 0) * 70ms); }
+@keyframes raid-in { from { opacity: 0; transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) { .raids:not(.exts) button { animation: none; } }
 
 .moment { max-width: 1000px; text-align: center; }
 

@@ -192,7 +192,11 @@
       };
       figs.forEach((f, i) => {
         if (!extTabs[f.dataset.ext]) extTabs[f.dataset.ext] = tab(f.dataset.ext, '.exts', i);
-        if (!raidTabs[key(f)]) raidTabs[key(f)] = tab(f.dataset.raid, '.raids:not(.exts)', i);
+        if (!raidTabs[key(f)]) {
+          raidTabs[key(f)] = tab(f.dataset.raid, '.raids:not(.exts)', i);
+          // rang du raid dans son extension, pour décaler l'apparition en fondu (style.css)
+          raidTabs[key(f)].style.setProperty('--i', Object.keys(raidTabs).filter(k => k.startsWith(f.dataset.ext + '|')).length - 1);
+        }
       });
 
       // moitié gauche ou droite d'une image ; la légende va sur la moitié gauche
