@@ -159,10 +159,10 @@
     }
 
     // une vérification par changement réel d'utilisateur : au chargement, INITIAL_SESSION et SIGNED_IN
-    // arrivent tous deux et lanceraient deux synchronisations concurrentes
-    let utilisateur;
+    // arrivent tous deux (dans un ordre variable) et lanceraient deux synchronisations concurrentes
+    let utilisateur = 0; // 0 = pas encore vérifié (distinct de undefined = déconnecté)
     sb.auth.onAuthStateChange((evt, session) => {
-      if (session?.user.id === utilisateur && evt !== 'INITIAL_SESSION') return;
+      if (session?.user.id === utilisateur) return;
       utilisateur = session?.user.id;
       setTimeout(verifier);
     });

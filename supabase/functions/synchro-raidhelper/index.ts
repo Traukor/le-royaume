@@ -64,7 +64,7 @@ Deno.serve(async (req) => {
     });
     if (e1) return json({ erreur: e1.message }, 500);
 
-    // une ligne par joueur (la dernière inscription l'emporte), puis remplacement complet
+    // une ligne par joueur (la dernière inscription l'emporte)
     const parJoueur = new Map();
     for (const s of signUps ?? []) {
       parJoueur.set(s.userId, {
@@ -72,9 +72,12 @@ Deno.serve(async (req) => {
         role: s.roleName, position: s.position, inscrit_le: s.entryTime ? new Date(s.entryTime * 1000).toISOString() : null,
       });
     }
-    await admin.from("inscriptions").delete().eq("sortie_id", ev.id);
-    const { error: e2 } = await admin.from("inscriptions").insert([...parJoueur.values()]);
+    // upsert puis suppression des désinscrits : deux synchronisations simultanées ne se gênent pas
+    const { error: e2 } = await admin.from("inscriptions").upsert([...parJoueur.values()]);
     if (e2) return json({ erreur: e2.message }, 500);
+    const { error: e3 } = await admin.from("inscriptions").delete().eq("sortie_id", ev.id)
+      .not("discord_id", "in", `(${[...parJoueur.keys(), "0"].join(",")})`);
+    if (e3) return json({ erreur: e3.message }, 500);
   }
   return json({ synchro: true, sorties: evenements.length });
 });
