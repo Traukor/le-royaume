@@ -72,7 +72,9 @@
 
       contenu.replaceChildren(el('p', { textContent: 'Récupération des sorties Raid-Helper…' }));
       const synchro = await sb.functions.invoke('synchro-raidhelper');
-      calendrier(synchro.error ? 'Raid-Helper ne répond pas : les sorties affichées peuvent dater un peu.' : null);
+      // le message du serveur (ex. « Raid-Helper a répondu 401 ») aide à comprendre une panne
+      const detail = synchro.error && await synchro.error.context?.json?.().then(d => d.erreur, () => null);
+      calendrier(synchro.error ? `Synchronisation Raid-Helper impossible${detail ? ' (' + detail + ')' : ''} : les sorties affichées peuvent dater un peu.` : null);
     }
 
     // Calendrier : sorties à venir, puis celles des 30 derniers jours
@@ -155,9 +157,13 @@
       contenu.replaceChildren(...entete, message, lignes, el('p', {}, nouveau, ajouter), enregistrer);
     }
 
-    // une vérification par changement réel de session (pas au simple rafraîchissement du jeton)
-    sb.auth.onAuthStateChange(evt => {
-      if (['INITIAL_SESSION', 'SIGNED_IN', 'SIGNED_OUT'].includes(evt)) setTimeout(verifier);
+    // une vérification par changement réel d'utilisateur : au chargement, INITIAL_SESSION et SIGNED_IN
+    // arrivent tous deux et lanceraient deux synchronisations concurrentes
+    let utilisateur;
+    sb.auth.onAuthStateChange((evt, session) => {
+      if (session?.user.id === utilisateur && evt !== 'INITIAL_SESSION') return;
+      utilisateur = session?.user.id;
+      setTimeout(verifier);
     });
   </script>
 </body>
