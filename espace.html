@@ -138,9 +138,12 @@
       // Appel : celui déjà saisi, sinon pré-rempli avec les inscriptions
       const saisi = new Map(appel.map(a => [a.joueur, a]));
       const lignes = el('div', { className: 'appel' });
-      const ligne = (joueur, nom, info, etatInitial, minutes) => lignes.append(
+      // les non-inscrits Raid-Helper peuvent être retirés (effectif à l'enregistrement)
+      const ligne = (joueur, nom, info, etatInitial, minutes, retirable) => lignes.append(
         el('fieldset', { className: 'ligne', dataset: { joueur, nom } },
-          el('legend', {}, el('strong', { textContent: nom }), info && el('span', { textContent: ' ' + info })),
+          el('legend', {}, el('strong', { textContent: nom }), info && el('span', { textContent: ' ' + info }),
+            retirable && el('button', { className: 'retirer', type: 'button', textContent: '×', title: "Retirer de l'appel",
+              ariaLabel: 'Retirer ' + nom + " de l'appel", onclick: e => e.target.closest('.ligne').remove() })),
           ...Object.entries(ETATS).map(([v, t]) => el('label', {},
             el('input', { type: 'radio', name: 'e' + joueur, value: v, checked: v === etatInitial }), ' ' + t)),
           el('label', { className: 'min' }, el('input', { type: 'number', min: 0, value: minutes ?? '', placeholder: '?' }), ' min')));
@@ -148,12 +151,12 @@
         const a = saisi.get(i.discord_id);
         ligne(i.discord_id, i.nom, detail(i), a ? a.etat : (i.classe in PREREMPLI ? PREREMPLI[i.classe] : 'present'), a?.retard_min);
       }
-      for (const a of appel) if (!inscrits.some(i => i.discord_id === a.joueur)) ligne(a.joueur, a.nom, 'non inscrit', a.etat, a.retard_min);
+      for (const a of appel) if (!inscrits.some(i => i.discord_id === a.joueur)) ligne(a.joueur, a.nom, 'non inscrit', a.etat, a.retard_min, true);
 
       const nouveau = el('input', { type: 'text', placeholder: 'Joueur non inscrit' });
       const ajouter = bouton('Ajouter', '', () => {
         const nom = nouveau.value.trim();
-        if (nom) ligne('nom:' + nom.toLowerCase(), nom, 'non inscrit', 'present');
+        if (nom) ligne('nom:' + nom.toLowerCase(), nom, 'non inscrit', 'present', null, true);
         nouveau.value = '';
       });
       const dernier = appel.reduce((a, b) => (a && a.modifie_le > b.modifie_le ? a : b), null);
@@ -170,9 +173,12 @@
         }).filter(Boolean)
           // seules les lignes nouvelles ou modifiées partent (et sont donc journalisées)
           .filter(r => { const a = saisi.get(r.joueur); return !a || a.etat !== r.etat || a.retard_min !== r.retard_min; });
-        if (!rangs.length) return message.textContent = 'Aucune modification.';
-        const { error } = await sb.from('appel').upsert(rangs);
-        if (error) return message.textContent = "L'enregistrement a échoué : " + error.message;
+        const presents = new Set([...lignes.querySelectorAll('.ligne')].map(f => f.dataset.joueur));
+        const retires = [...saisi.keys()].filter(j => !presents.has(j));
+        if (!rangs.length && !retires.length) return message.textContent = 'Aucune modification.';
+        const { error } = rangs.length ? await sb.from('appel').upsert(rangs) : {};
+        const { error: e2 } = retires.length ? await sb.from('appel').delete().eq('sortie_id', id).in('joueur', retires) : {};
+        if (error || e2) return message.textContent = "L'enregistrement a échoué : " + (error || e2).message;
         sortie(id);
         calendrier(); // nombre d'inscrits à jour derrière la fenêtre
       });

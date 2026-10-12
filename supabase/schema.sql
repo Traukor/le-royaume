@@ -86,6 +86,18 @@ drop trigger if exists tracer_appel on public.appel;
 create trigger tracer_appel before insert or update on public.appel
   for each row execute function public.tracer_appel();
 
+-- Retrait d'un joueur de l'appel (non inscrit ajouté par erreur) : journalisé avec l'état « retire ».
+create or replace function public.tracer_retrait() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  insert into public.appel_journal (sortie_id, joueur, etat, retard_min, modifie_par, modifie_le)
+  values (old.sortie_id, old.joueur, 'retire', null, (select pseudo from public.acces where user_id = auth.uid()), now());
+  return old;
+end $$;
+drop trigger if exists tracer_retrait on public.appel;
+create trigger tracer_retrait after delete on public.appel
+  for each row execute function public.tracer_retrait();
+
 alter table public.acces         enable row level security;
 alter table public.sorties       enable row level security;
 alter table public.inscriptions  enable row level security;
@@ -103,5 +115,7 @@ drop policy if exists saisir on public.appel;
 create policy saisir on public.appel for insert with check (public.est_officier());
 drop policy if exists corriger on public.appel;
 create policy corriger on public.appel for update using (public.est_officier());
+drop policy if exists retirer on public.appel;
+create policy retirer on public.appel for delete using (public.est_officier());
 drop policy if exists lire on public.appel_journal;
 create policy lire on public.appel_journal for select using (public.est_officier());
