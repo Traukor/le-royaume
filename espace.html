@@ -23,7 +23,7 @@
     <h1>Espace guilde</h1>
     <div id="etat" aria-live="polite"><p>Chargement…</p></div>
     <div id="contenu"></div>
-    <dialog id="zoom" class="zoom"></dialog>
+    <dialog id="zoom" class="zoom" closedby="none"></dialog>
   </main>
 
   <footer>Le Royaume — guilde francophone sur World of Warcraft Forever.<br>World of Warcraft est une marque de Blizzard Entertainment.</footer>
@@ -179,13 +179,14 @@
       ouvrir(...entete, message, lignes, el('p', {}, nouveau, ajouter), enregistrer);
     }
 
-    // « zoom » sur une sortie : fenêtre native par-dessus le calendrier (Échap ou clic à côté pour fermer)
+    // « zoom » sur une sortie : fenêtre native par-dessus le calendrier, fermée uniquement par la croix
+    // (ni Échap ni clic à côté : un appel en cours de saisie ne se perd pas par mégarde)
     const zoom = document.getElementById('zoom');
     const ouvrir = (...enfants) => {
-      zoom.replaceChildren(el('div', { className: 'zoom-in' }, ...enfants)); // le fond seul reste « à côté »
+      zoom.replaceChildren(el('div', { className: 'zoom-in' }, ...enfants));
       if (!zoom.open) zoom.showModal();
     };
-    zoom.addEventListener('click', e => { if (e.target === zoom) zoom.close(); });
+    zoom.addEventListener('cancel', e => e.preventDefault()); // Échap, pour les navigateurs sans closedby
 
     // une vérification par changement réel d'utilisateur : au chargement, INITIAL_SESSION et SIGNED_IN
     // arrivent tous deux (dans un ordre variable) et lanceraient deux synchronisations concurrentes
