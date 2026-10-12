@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Espace officiers — Le Royaume</title>
+  <title>Espace guilde — Le Royaume</title>
   <meta name="robots" content="noindex">
   <link rel="icon" type="image/png" href="img/favicon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -20,8 +20,9 @@
   </nav>
 
   <main class="espace">
-    <h1>Espace officiers</h1>
+    <h1>Espace guilde</h1>
     <div id="etat" aria-live="polite"><p>Chargement…</p></div>
+    <div id="contenu"></div>
   </main>
 
   <footer>Le Royaume — guilde francophone sur World of Warcraft Forever.<br>World of Warcraft est une marque de Blizzard Entertainment.</footer>
@@ -30,44 +31,128 @@
           integrity="sha384-Rj26LVGvoeRVR6+mwQmFfcR3QOBEwT+ZmuCWpuiqeTzJpCs0ER4ITAWGb4Hiy3Ok" crossorigin="anonymous"></script>
   <script>
     // Adresse et clé publique du projet Supabase (publiques par conception : la sécurité repose
-    // sur la vérification côté serveur, pas sur ces valeurs).
+    // sur la vérification côté serveur et les règles d'accès de la base, pas sur ces valeurs).
     const SUPABASE_URL = 'https://gobvfbwuesskhrgcrzjd.supabase.co';
     const SUPABASE_KEY = 'sb_publishable_BJwMSdlBLfltRGA-GCELrQ_MbyCM1x_';
 
     const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
     const etat = document.getElementById('etat');
+    const contenu = document.getElementById('contenu');
+    let officier = false;
 
-    // remplace le contenu de la zone d'état ; le texte passe par textContent (pas d'injection possible)
-    const afficher = (texte, bouton) => {
-      const p = document.createElement('p');
-      p.textContent = texte;
-      etat.replaceChildren(p);
-      if (bouton) etat.append(bouton);
+    // crée un élément ; les textes passent par textContent (pas d'injection possible)
+    const el = (tag, props = {}, ...enfants) => {
+      const e = Object.assign(document.createElement(tag), props);
+      e.append(...enfants.filter(x => x != null && x !== false));
+      return e;
     };
-    const bouton = (texte, classe, action) => {
-      const b = document.createElement('button');
-      b.className = 'btn ' + classe;
-      b.textContent = texte;
-      b.onclick = action;
-      return b;
-    };
+    // remplace le contenu de la zone d'état
+    const afficher = (texte, bouton) => etat.replaceChildren(el('p', { textContent: texte }), ...(bouton ? [bouton] : []));
+    const bouton = (texte, classe, action) => el('button', { className: 'btn ' + classe, textContent: texte, onclick: action });
     const connexion = () => sb.auth.signInWithOAuth({
       provider: 'discord',
       options: { scopes: 'identify', redirectTo: location.origin + location.pathname },
     });
     const deconnexion = () => sb.auth.signOut(); // l'événement SIGNED_OUT relance verifier()
+    const quand = d => new Date(d).toLocaleString('fr-FR', { timeZone: 'Europe/Paris',
+      weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
     async function verifier() {
+      contenu.replaceChildren();
       const { data: { session } } = await sb.auth.getSession();
-      if (!session) return afficher('Cet espace est réservé aux officiers de la guilde. Connectez-vous avec votre compte Discord.',
+      if (!session) return afficher('Cet espace est réservé aux membres de la guilde. Connectez-vous avec votre compte Discord.',
         bouton('Se connecter avec Discord', 'discord', connexion));
 
       afficher('Vérification de votre rôle sur le Discord de la guilde…');
       const { data, error } = await sb.functions.invoke('verifier-role');
       if (error) return afficher('La vérification a échoué. Réessayez plus tard.', bouton('Se déconnecter', '', deconnexion));
       if (!data.membre) return afficher("Ce compte Discord n'est pas sur le serveur de la guilde.", bouton('Se déconnecter', '', deconnexion));
-      if (!data.autorise) return afficher(`Bonjour ${data.pseudo} : cet espace est réservé aux officiers.`, bouton('Se déconnecter', '', deconnexion));
-      afficher(`Bienvenue ${data.pseudo}, accès officier confirmé.`, bouton('Se déconnecter', '', deconnexion));
+      officier = data.autorise;
+      afficher(`Bienvenue ${data.pseudo}${officier ? ', accès officier confirmé' : ''}.`, bouton('Se déconnecter', '', deconnexion));
+
+      contenu.replaceChildren(el('p', { textContent: 'Récupération des sorties Raid-Helper…' }));
+      const synchro = await sb.functions.invoke('synchro-raidhelper');
+      calendrier(synchro.error ? 'Raid-Helper ne répond pas : les sorties affichées peuvent dater un peu.' : null);
+    }
+
+    // Calendrier : sorties à venir, puis celles des 30 derniers jours
+    async function calendrier(avertissement) {
+      const { data, error } = await sb.from('sorties').select('id, titre, debut, inscriptions(count)')
+        .gte('debut', new Date(Date.now() - 30 * 86400e3).toISOString()).order('debut');
+      if (error) return contenu.replaceChildren(el('p', { textContent: 'Calendrier indisponible pour le moment.' }));
+      const maintenant = new Date().toISOString();
+      const liste = sorties => sorties.length
+        ? el('ul', { className: 'sorties' }, ...sorties.map(s => el('li', {},
+            el('button', { onclick: () => sortie(s.id) },
+              el('time', { textContent: quand(s.debut) }),
+              el('strong', { textContent: s.titre || 'Sortie' }),
+              el('span', { textContent: `${s.inscriptions[0].count} inscrits` })))))
+        : el('p', { className: 'vide', textContent: 'Aucune sortie.' });
+      contenu.replaceChildren(
+        ...(avertissement ? [el('p', { className: 'vide', textContent: avertissement })] : []),
+        el('h2', { textContent: 'Prochaines sorties' }), liste(data.filter(s => s.debut >= maintenant)),
+        el('h2', { textContent: 'Sorties passées' }), liste(data.filter(s => s.debut < maintenant).reverse()));
+    }
+
+    // Raid-Helper range les absents, retards, incertains et remplaçants comme des « classes »
+    const PREREMPLI = { Absence: 'absent_prevenu', Late: 'retard', Bench: 'banc', Tentative: null };
+    const ETATS = { present: 'Présent', retard: 'Retard', absent_prevenu: 'Absent prévenu', absent: 'Absent', banc: 'Banc' };
+
+    async function sortie(id) {
+      const [{ data: s }, { data: inscrits }, { data: appel }] = await Promise.all([
+        sb.from('sorties').select('*').eq('id', id).single(),
+        sb.from('inscriptions').select('*').eq('sortie_id', id).order('position'),
+        officier ? sb.from('appel').select('*').eq('sortie_id', id) : { data: [] },
+      ]);
+      if (!s) return calendrier('Sortie introuvable.');
+      const entete = [bouton('← Calendrier', '', () => calendrier()), el('h2', { textContent: s.titre || 'Sortie' }),
+        el('p', { textContent: quand(s.debut) + (s.chef ? ' — menée par ' + s.chef : '') })];
+      const detail = i => [i.spe, i.classe].filter(Boolean).join(' ');
+
+      if (!officier) return contenu.replaceChildren(...entete, el('ul', { className: 'inscrits' },
+        ...inscrits.map(i => el('li', {}, el('strong', { textContent: i.nom }), el('span', { textContent: ' ' + detail(i) })))));
+
+      // Appel : celui déjà saisi, sinon pré-rempli avec les inscriptions
+      const saisi = new Map(appel.map(a => [a.joueur, a]));
+      const lignes = el('div', { className: 'appel' });
+      const ligne = (joueur, nom, info, etatInitial, minutes) => lignes.append(
+        el('fieldset', { className: 'ligne', dataset: { joueur, nom } },
+          el('legend', {}, el('strong', { textContent: nom }), info && el('span', { textContent: ' ' + info })),
+          ...Object.entries(ETATS).map(([v, t]) => el('label', {},
+            el('input', { type: 'radio', name: 'e' + joueur, value: v, checked: v === etatInitial }), ' ' + t)),
+          el('label', { className: 'min' }, el('input', { type: 'number', min: 0, value: minutes ?? '', placeholder: '?' }), ' min')));
+      for (const i of inscrits) {
+        const a = saisi.get(i.discord_id);
+        ligne(i.discord_id, i.nom, detail(i), a ? a.etat : (i.classe in PREREMPLI ? PREREMPLI[i.classe] : 'present'), a?.retard_min);
+      }
+      for (const a of appel) if (!inscrits.some(i => i.discord_id === a.joueur)) ligne(a.joueur, a.nom, 'non inscrit', a.etat, a.retard_min);
+
+      const nouveau = el('input', { type: 'text', placeholder: 'Joueur non inscrit' });
+      const ajouter = bouton('Ajouter', '', () => {
+        const nom = nouveau.value.trim();
+        if (nom) ligne('nom:' + nom.toLowerCase(), nom, 'non inscrit', 'present');
+        nouveau.value = '';
+      });
+      const dernier = appel.reduce((a, b) => (a && a.modifie_le > b.modifie_le ? a : b), null);
+      const message = el('p', { className: 'vide', textContent: dernier
+        ? `Appel enregistré, dernière modification par ${dernier.modifie_par} le ${quand(dernier.modifie_le)}.`
+        : 'Appel pas encore fait : pré-rempli avec les inscriptions Raid-Helper.' });
+
+      const enregistrer = bouton("Enregistrer l'appel", 'discord', async () => {
+        const rangs = [...lignes.querySelectorAll('.ligne')].map(f => {
+          const e = f.querySelector('input[type=radio]:checked')?.value;
+          const min = f.querySelector('input[type=number]').value;
+          return e && { sortie_id: id, joueur: f.dataset.joueur, nom: f.dataset.nom, etat: e,
+            retard_min: e === 'retard' && min !== '' ? +min : null };
+        }).filter(Boolean)
+          // seules les lignes nouvelles ou modifiées partent (et sont donc journalisées)
+          .filter(r => { const a = saisi.get(r.joueur); return !a || a.etat !== r.etat || a.retard_min !== r.retard_min; });
+        if (!rangs.length) return message.textContent = 'Aucune modification.';
+        const { error } = await sb.from('appel').upsert(rangs);
+        if (error) return message.textContent = "L'enregistrement a échoué : " + error.message;
+        sortie(id);
+      });
+      contenu.replaceChildren(...entete, message, lignes, el('p', {}, nouveau, ajouter), enregistrer);
     }
 
     // une vérification par changement réel de session (pas au simple rafraîchissement du jeton)

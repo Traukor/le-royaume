@@ -6,6 +6,7 @@
 //   DISCORD_BOT_TOKEN  le jeton du bot de l'application Discord
 //   DISCORD_GUILD_ID   l'identifiant du serveur Discord de la guilde
 //   DISCORD_ROLE_IDS   les identifiants des rôles autorisés, séparés par des virgules
+// Le résultat est aussi inscrit dans la table acces, sur laquelle reposent les droits de la base (supabase/schema.sql).
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const ORIGINES = ["https://le-royaume.fr"];
@@ -37,14 +38,22 @@ Deno.serve(async (req) => {
     `https://discord.com/api/v10/guilds/${Deno.env.get("DISCORD_GUILD_ID")}/members/${discordId}`,
     { headers: { Authorization: `Bot ${Deno.env.get("DISCORD_BOT_TOKEN")}` } },
   );
-  if (r.status === 404) return json({ autorise: false, membre: false });
-  if (!r.ok) return json({ erreur: `Discord a répondu ${r.status}` }, 502);
+  if (!r.ok && r.status !== 404) return json({ erreur: `Discord a répondu ${r.status}` }, 502);
 
-  const membre = await r.json();
+  const membre = r.ok ? await r.json() : null;
   const autorises = (Deno.env.get("DISCORD_ROLE_IDS") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-  return json({
-    autorise: membre.roles.some((id: string) => autorises.includes(id)),
-    membre: true,
-    pseudo: membre.nick ?? membre.user.global_name ?? membre.user.username,
+  const resultat = {
+    autorise: !!membre?.roles.some((id: string) => autorises.includes(id)),
+    membre: !!membre,
+    pseudo: membre ? membre.nick ?? membre.user.global_name ?? membre.user.username : null,
+  };
+
+  // clé service : la table acces n'est modifiable que d'ici
+  const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const { error: e } = await admin.from("acces").upsert({
+    user_id: user.id, discord_id: discordId, pseudo: resultat.pseudo,
+    membre: resultat.membre, officier: resultat.autorise, maj: new Date().toISOString(),
   });
+  if (e) return json({ erreur: `enregistrement des droits : ${e.message}` }, 500);
+  return json(resultat);
 });
