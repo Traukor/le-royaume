@@ -173,6 +173,16 @@ button.btn { background: transparent; color: var(--gold); font-size: 1rem; curso
 /* zoom sur une sortie */
 .zoom { width: min(720px, calc(100% - 32px)); max-height: calc(100% - 32px); padding: 0; color: var(--text); background: var(--bg); border: 1px solid var(--gold); border-radius: 6px; }
 .zoom::backdrop { background: rgba(0, 0, 0, .7); }
+/* ouverture : la fenêtre grandit depuis 92 % en apparaissant ; fermeture : l'inverse.
+   allow-discrete garde la fenêtre affichée le temps de l'animation de sortie (CSS seul, sans JS) */
+.zoom, .zoom::backdrop { transition: opacity .25s ease, transform .25s ease, overlay .25s allow-discrete, display .25s allow-discrete; }
+.zoom:not([open]) { opacity: 0; transform: scale(.92); }
+.zoom:not([open])::backdrop { opacity: 0; }
+@starting-style {
+  .zoom[open] { opacity: 0; transform: scale(.92); }
+  .zoom[open]::backdrop { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .zoom, .zoom::backdrop { transition: none; } }
 .zoom-in { position: relative; padding: 16px 20px 20px; }
 .zoom h2 { margin: 4px 40px 0; }
 .fermer { position: absolute; top: 8px; right: 8px; width: 36px; height: 36px; font-size: 1.5rem; line-height: 1; color: var(--gold); background: none; border: 1px solid var(--gold-dark); border-radius: 50%; cursor: pointer; }
