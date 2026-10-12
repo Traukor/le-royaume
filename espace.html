@@ -23,6 +23,7 @@
     <h1>Espace guilde</h1>
     <div id="etat" aria-live="polite"><p>Chargement…</p></div>
     <div id="contenu"></div>
+    <dialog id="zoom" class="zoom"></dialog>
   </main>
 
   <footer>Le Royaume — guilde francophone sur World of Warcraft Forever.<br>World of Warcraft est une marque de Blizzard Entertainment.</footer>
@@ -78,23 +79,41 @@
       calendrier(synchro.error ? `Synchronisation Raid-Helper impossible${detail ? ' (' + detail + ')' : ''} : les sorties affichées peuvent dater un peu.` : null);
     }
 
-    // Calendrier : sorties à venir, puis celles des 30 derniers jours
-    async function calendrier(avertissement) {
+    // Calendrier mensuel (semaines du lundi au dimanche, heure de Paris)
+    const jourParis = d => new Date(d).toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' }); // AAAA-MM-JJ
+    const heure = d => new Date(d).toLocaleTimeString('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' });
+    let mois = new Date(jourParis(Date.now()).slice(0, 7) + '-01T12:00'); // midi : à l'abri des changements d'heure
+    let avertissementSynchro = null;
+
+    async function calendrier(avertissement = avertissementSynchro) {
+      avertissementSynchro = avertissement;
+      const debut = new Date(mois); debut.setDate(1 - (mois.getDay() + 6) % 7); // lundi de la 1re semaine
+      const jours = Array.from({ length: 42 }, (_, i) => { const d = new Date(debut); d.setDate(debut.getDate() + i); return d; });
       const { data, error } = await sb.from('sorties').select('id, titre, debut, inscriptions(count)')
-        .gte('debut', new Date(Date.now() - 30 * 86400e3).toISOString()).order('debut');
+        .gte('debut', new Date(debut.getTime() - 86400e3).toISOString())
+        .lt('debut', new Date(jours[41].getTime() + 86400e3).toISOString()).order('debut');
       if (error) return contenu.replaceChildren(el('p', { textContent: 'Calendrier indisponible pour le moment.' }));
-      const maintenant = new Date().toISOString();
-      const liste = sorties => sorties.length
-        ? el('ul', { className: 'sorties' }, ...sorties.map(s => el('li', {},
-            el('button', { onclick: () => sortie(s.id) },
-              el('time', { textContent: quand(s.debut) }),
-              el('strong', { textContent: s.titre || 'Sortie' }),
-              el('span', { textContent: `${s.inscriptions[0].count} inscrits` })))))
-        : el('p', { className: 'vide', textContent: 'Aucune sortie.' });
+
+      const parJour = Map.groupBy(data, s => jourParis(s.debut));
+      const aujourdhui = jourParis(Date.now());
+      const changer = n => () => { mois.setMonth(mois.getMonth() + n); calendrier(); };
+      const cases = jours.map(d => {
+        const cle = jourParis(d);
+        return el('div', { className: 'jour' + (d.getMonth() !== mois.getMonth() ? ' autre' : '') + (cle === aujourdhui ? ' auj' : '') },
+          el('span', { className: 'num', textContent: d.getDate() }),
+          ...(parJour.get(cle) ?? []).map(s => el('button', { className: 'ev', title: s.titre || 'Sortie', onclick: () => sortie(s.id) },
+            el('time', { textContent: heure(s.debut) }), el('span', { textContent: ' ' + (s.titre || 'Sortie') }),
+            el('small', { textContent: ` · ${s.inscriptions[0].count}` }))));
+      });
       contenu.replaceChildren(
         ...(avertissement ? [el('p', { className: 'vide', textContent: avertissement })] : []),
-        el('h2', { textContent: 'Prochaines sorties' }), liste(data.filter(s => s.debut >= maintenant)),
-        el('h2', { textContent: 'Sorties passées' }), liste(data.filter(s => s.debut < maintenant).reverse()));
+        el('div', { className: 'cal-tete' },
+          el('button', { className: 'nav-mois', textContent: '‹', ariaLabel: 'Mois précédent', onclick: changer(-1) }),
+          el('h2', { textContent: mois.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) }),
+          el('button', { className: 'nav-mois', textContent: '›', ariaLabel: 'Mois suivant', onclick: changer(1) })),
+        el('div', { className: 'cal' },
+          ...['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.'].map(j => el('div', { className: 'jsem', textContent: j })),
+          ...cases));
     }
 
     // Raid-Helper range les absents, retards, incertains et remplaçants comme des « classes »
@@ -107,12 +126,13 @@
         sb.from('inscriptions').select('*').eq('sortie_id', id).order('position'),
         officier ? sb.from('appel').select('*').eq('sortie_id', id) : { data: [] },
       ]);
-      if (!s) return calendrier('Sortie introuvable.');
-      const entete = [bouton('← Calendrier', '', () => calendrier()), el('h2', { textContent: s.titre || 'Sortie' }),
+      if (!s) return;
+      const entete = [el('button', { className: 'fermer', textContent: '×', ariaLabel: 'Fermer', onclick: () => zoom.close() }),
+        el('h2', { textContent: s.titre || 'Sortie' }),
         el('p', { textContent: quand(s.debut) + (s.chef ? ' — menée par ' + s.chef : '') })];
       const detail = i => [i.spe, i.classe].filter(Boolean).join(' ');
 
-      if (!officier) return contenu.replaceChildren(...entete, el('ul', { className: 'inscrits' },
+      if (!officier) return ouvrir(...entete, el('ul', { className: 'inscrits' },
         ...inscrits.map(i => el('li', {}, el('strong', { textContent: i.nom }), el('span', { textContent: ' ' + detail(i) })))));
 
       // Appel : celui déjà saisi, sinon pré-rempli avec les inscriptions
@@ -154,9 +174,18 @@
         const { error } = await sb.from('appel').upsert(rangs);
         if (error) return message.textContent = "L'enregistrement a échoué : " + error.message;
         sortie(id);
+        calendrier(); // nombre d'inscrits à jour derrière la fenêtre
       });
-      contenu.replaceChildren(...entete, message, lignes, el('p', {}, nouveau, ajouter), enregistrer);
+      ouvrir(...entete, message, lignes, el('p', {}, nouveau, ajouter), enregistrer);
     }
+
+    // « zoom » sur une sortie : fenêtre native par-dessus le calendrier (Échap ou clic à côté pour fermer)
+    const zoom = document.getElementById('zoom');
+    const ouvrir = (...enfants) => {
+      zoom.replaceChildren(el('div', { className: 'zoom-in' }, ...enfants)); // le fond seul reste « à côté »
+      if (!zoom.open) zoom.showModal();
+    };
+    zoom.addEventListener('click', e => { if (e.target === zoom) zoom.close(); });
 
     // une vérification par changement réel d'utilisateur : au chargement, INITIAL_SESSION et SIGNED_IN
     // arrivent tous deux (dans un ordre variable) et lanceraient deux synchronisations concurrentes
