@@ -41,8 +41,9 @@
     let officier = false;
 
     // crée un élément ; les textes passent par textContent (pas d'injection possible)
-    const el = (tag, props = {}, ...enfants) => {
+    const el = (tag, { dataset, ...props } = {}, ...enfants) => {
       const e = Object.assign(document.createElement(tag), props);
+      Object.assign(e.dataset, dataset); // dataset est en lecture seule : on remplit l'existant
       e.append(...enfants.filter(x => x != null && x !== false));
       return e;
     };
