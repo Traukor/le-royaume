@@ -9,7 +9,7 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const ORIGINES = ["https://le-royaume.fr"];
-const RH = "https://raid-helper.dev/api";
+const RH = "https://raid-helper.dev/api/v4"; // v2 et v3 ont été retirées
 const FENETRE_JOURS = 14; // sorties passées encore resynchronisées (inscriptions modifiées après coup)
 
 Deno.serve(async (req) => {
@@ -38,8 +38,8 @@ Deno.serve(async (req) => {
   const depuis = Math.floor(Date.now() / 1000) - FENETRE_JOURS * 86400;
   const evenements = [];
   for (let page = 1, pages = 1; page <= pages; page++) {
-    const r = await fetch(`${RH}/v3/servers/${Deno.env.get("DISCORD_GUILD_ID")}/events`, {
-      headers: { Authorization: cle, StartTimeFilter: String(depuis), Page: String(page) },
+    const r = await fetch(`${RH}/servers/${Deno.env.get("DISCORD_GUILD_ID")}/events`, {
+      headers: { Authorization: cle, StartTimeFilter: String(depuis), Page: String(page), IncludeSignUps: "true" },
     });
     if (!r.ok) return json({ erreur: `Raid-Helper a répondu ${r.status}` }, 502);
     const d = await r.json();
@@ -49,9 +49,13 @@ Deno.serve(async (req) => {
 
   const maj = new Date().toISOString();
   for (const ev of evenements) {
-    const r = await fetch(`${RH}/v2/events/${ev.id}`, { headers: { Authorization: cle } });
-    if (!r.ok) return json({ erreur: `Raid-Helper a répondu ${r.status} pour ${ev.id}` }, 502);
-    const detail = await r.json();
+    // inscrits fournis par la liste (IncludeSignUps) ; sinon, lecture de l'événement seul
+    let signUps = ev.signUps;
+    if (!signUps) {
+      const r = await fetch(`${RH}/events/${ev.id}`, { headers: { Authorization: cle } });
+      if (!r.ok) return json({ erreur: `Raid-Helper a répondu ${r.status} pour ${ev.id}` }, 502);
+      signUps = (await r.json()).signUps;
+    }
 
     const { error: e1 } = await admin.from("sorties").upsert({
       id: ev.id, titre: ev.title, description: ev.description, chef: ev.leaderName, maj,
@@ -62,7 +66,7 @@ Deno.serve(async (req) => {
 
     // une ligne par joueur (la dernière inscription l'emporte), puis remplacement complet
     const parJoueur = new Map();
-    for (const s of detail.signUps ?? []) {
+    for (const s of signUps ?? []) {
       parJoueur.set(s.userId, {
         sortie_id: ev.id, discord_id: s.userId, nom: s.name, classe: s.className, spe: s.specName,
         role: s.roleName, position: s.position, inscrit_le: s.entryTime ? new Date(s.entryTime * 1000).toISOString() : null,
