@@ -132,7 +132,9 @@
     const PREREMPLI = { Absence: 'absent_prevenu', Late: 'retard', Bench: 'banc', Tentative: null };
     const SPECIAUX = { Absence: 'Absents', Late: 'En retard', Tentative: 'Incertains', Bench: 'Remplaçants' };
     const ETATS = { present: 'Présent', retard: 'Retard', absent_prevenu: 'Absent prévenu', absent: 'Absent', banc: 'Banc' };
-    const ROLES = { Tanks: 'Tanks', Healers: 'Soigneurs', Melee: 'DPS', Ranged: 'DPS' };
+    // rôle Raid-Helper (« Tanks », « Healers »…) ou, à défaut, classe de rôle (« Tank », « Healer »…)
+    const roleDe = i => { const r = `${i.role} ${i.classe}`.toLowerCase();
+      return r.includes('tank') ? 'Tanks' : r.includes('heal') ? 'Soigneurs' : /melee|ranged|dps/.test(r) ? 'DPS' : 'Autres'; };
     const CIBLES = { Tanks: 2, Soigneurs: 5, DPS: 18 }; // ponytail: cibles fixes, à rendre réglables si la taille du raid change
     const STATUTS = { '': '—', valide: 'Validé', attente: 'En attente' };
 
@@ -161,7 +163,7 @@
         if (error) return message.textContent = "L'enregistrement a échoué : " + error.message;
         sortie(id, 'composition'); // compteurs à jour
       } }, ...Object.entries(STATUTS).map(([v, t]) => el('option', { value: v, textContent: t, selected: v === (statut.get(i.discord_id) ?? '') })));
-      const groupes = Map.groupBy(inscrits, i => SPECIAUX[i.classe] ?? ROLES[i.role] ?? 'Autres');
+      const groupes = Map.groupBy(inscrits, i => SPECIAUX[i.classe] ?? roleDe(i));
       const ordre = ['Tanks', 'Soigneurs', 'DPS', 'Autres', ...Object.values(SPECIAUX)];
       const composition = el('div', { className: 'compo' }, ...ordre.filter(g => groupes.has(g) || CIBLES[g]).map(g => {
         const liste = groupes.get(g) ?? [];
