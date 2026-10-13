@@ -135,24 +135,26 @@
     // rôle Raid-Helper (« Tanks », « Healers »…) ou, à défaut, classe de rôle (« Tank », « Healer »…)
     const roleDe = i => { const r = `${i.role} ${i.classe}`.toLowerCase();
       return r.includes('tank') ? 'Tanks' : r.includes('heal') ? 'Soigneurs' : /melee|ranged|dps/.test(r) ? 'DPS' : 'Autres'; };
-    const CIBLES = { Tanks: 2, Soigneurs: 5, DPS: 18 }; // ponytail: cibles fixes, à rendre réglables si la taille du raid change
+    const CIBLES = { Tanks: 2, Soigneurs: 5, DPS: 18 }; // par défaut ; réglables par sortie (table cibles)
+    const COLONNES_CIBLES = { Tanks: 'tanks', Soigneurs: 'soigneurs', DPS: 'dps' };
     const STATUTS = { '': '—', valide: 'Validé', attente: 'En attente' };
 
     async function sortie(id, onglet) {
-      const [{ data: s }, { data: inscrits }, { data: appel }, { data: compo }, { data: absences }] = await Promise.all([
+      const [{ data: s }, { data: inscrits }, { data: appel }, { data: compo }, { data: reglage }] = await Promise.all([
         sb.from('sorties').select('*').eq('id', id).single(),
         sb.from('inscriptions').select('*').eq('sortie_id', id).order('position'),
         officier ? sb.from('appel').select('*').eq('sortie_id', id) : { data: [] },
         sb.from('composition').select('*').eq('sortie_id', id),
-        officier ? sb.from('absences').select('joueur, du, au') : { data: [] },
+        sb.from('cibles').select('*').eq('sortie_id', id).maybeSingle(),
       ]);
       if (!s) return;
+      const jour = jourParis(s.debut);
+      const { data: absents } = await sb.rpc('absents', { jour }); // absences déclarées couvrant la soirée
       const entete = [fermer(), el('h2',{ textContent: s.titre || 'Sortie' }),
         el('p', { textContent: quand(s.debut) + (s.chef ? ' — menée par ' + s.chef : '') })];
       const detail = i => [i.spe, i.classe].filter(Boolean).join(' ');
       const statut = new Map((compo ?? []).map(c => [c.joueur, c.statut]));
-      const jour = jourParis(s.debut);
-      const absent = new Set((absences ?? []).filter(a => a.du <= jour && jour <= a.au).map(a => a.joueur));
+      const absent = new Set(absents ?? []);
 
       // Composition : inscrits par rôle, avec la cible ; les officiers valident ou mettent en attente
       const message = el('p', { className: 'vide' });
@@ -163,14 +165,24 @@
         if (error) return message.textContent = "L'enregistrement a échoué : " + error.message;
         sortie(id, 'composition'); // compteurs à jour
       } }, ...Object.entries(STATUTS).map(([v, t]) => el('option', { value: v, textContent: t, selected: v === (statut.get(i.discord_id) ?? '') })));
-      const groupes = Map.groupBy(inscrits, i => SPECIAUX[i.classe] ?? roleDe(i));
+      // une absence déclarée range l'inscrit parmi les absents, quel que soit son bouton Raid-Helper
+      const groupes = Map.groupBy(inscrits, i => absent.has(i.discord_id) ? SPECIAUX.Absence : SPECIAUX[i.classe] ?? roleDe(i));
+      const cible = g => reglage?.[COLONNES_CIBLES[g]] ?? CIBLES[g];
+      const regler = g => el('input', { type: 'number', min: 0, value: cible(g), className: 'cible', ariaLabel: 'Cible ' + g,
+        onchange: async e => {
+          const valeurs = Object.fromEntries(Object.keys(CIBLES).map(k => [COLONNES_CIBLES[k], cible(k)]));
+          const { error } = await sb.from('cibles').upsert({ sortie_id: id, ...valeurs, [COLONNES_CIBLES[g]]: +e.target.value });
+          if (error) return message.textContent = "L'enregistrement a échoué : " + error.message;
+          sortie(id, 'composition');
+        } });
       const ordre = ['Tanks', 'Soigneurs', 'DPS', 'Autres', ...Object.values(SPECIAUX)];
       const composition = el('div', { className: 'compo' }, ...ordre.filter(g => groupes.has(g) || CIBLES[g]).map(g => {
         const liste = groupes.get(g) ?? [];
         const valides = liste.filter(i => statut.get(i.discord_id) === 'valide').length;
         return el('section', {},
-          el('h3', { textContent: g + (CIBLES[g] ? ` ${liste.length} / ${CIBLES[g]}` : ` (${liste.length})`)
-            + (valides ? ` · ${valides} validé${valides > 1 ? 's' : ''}` : '') }),
+          el('h3', {}, g + (CIBLES[g] ? ` ${liste.length} / ` : ` (${liste.length})`),
+            CIBLES[g] && (officier ? regler(g) : String(cible(g))),
+            valides ? ` · ${valides} validé${valides > 1 ? 's' : ''}` : ''),
           el('ul', { className: 'inscrits' }, ...liste.map(i => el('li', {},
             el('strong', { textContent: i.nom }), el('span', { textContent: ' ' + detail(i) }),
             absent.has(i.discord_id) && el('em', { textContent: ' absence déclarée' }),
@@ -190,11 +202,13 @@
           ...Object.entries(ETATS).map(([v, t]) => el('label', {},
             el('input', { type: 'radio', name: 'e' + joueur, value: v, checked: v === etatInitial }), ' ' + t)),
           el('label', { className: 'min' }, el('input', { type: 'number', min: 0, value: minutes ?? '', placeholder: '?' }), ' min')));
+      // absence déclarée : hors de la liste, enregistré « absent prévenu » avec l'appel
+      const declares = inscrits.filter(i => absent.has(i.discord_id));
       for (const i of inscrits) {
-        const a = saisi.get(i.discord_id), abs = absent.has(i.discord_id), att = statut.get(i.discord_id) === 'attente';
-        const prevu = i.classe in PREREMPLI ? PREREMPLI[i.classe] : abs ? 'absent_prevenu' : att ? 'banc' : 'present';
-        ligne(i.discord_id, i.nom, [detail(i), abs && 'absence déclarée', att && 'en attente'].filter(Boolean).join(' · '),
-          a ? a.etat : prevu, a?.retard_min);
+        if (absent.has(i.discord_id)) continue;
+        const a = saisi.get(i.discord_id), att = statut.get(i.discord_id) === 'attente';
+        const prevu = i.classe in PREREMPLI ? PREREMPLI[i.classe] : att ? 'banc' : 'present';
+        ligne(i.discord_id, i.nom, [detail(i), att && 'en attente'].filter(Boolean).join(' · '), a ? a.etat : prevu, a?.retard_min);
       }
       for (const a of appel) if (!inscrits.some(i => i.discord_id === a.joueur)) ligne(a.joueur, a.nom, 'non inscrit', a.etat, a.retard_min, true);
 
@@ -207,7 +221,7 @@
       const dernier = appel.reduce((a, b) => (a && a.modifie_le > b.modifie_le ? a : b), null);
       const etatAppel = el('p', { className: 'vide', textContent: dernier
         ? `Appel enregistré, dernière modification par ${dernier.modifie_par} le ${quand(dernier.modifie_le)}.`
-        : "Appel pas encore fait : pré-rempli avec les inscriptions Raid-Helper, les absences déclarées et la liste d'attente." });
+        : "Appel pas encore fait : pré-rempli avec les inscriptions Raid-Helper et la liste d'attente." });
 
       const enregistrer = bouton("Enregistrer l'appel", 'discord', async () => {
         const rangs = [...lignes.querySelectorAll('.ligne')].map(f => {
@@ -216,9 +230,10 @@
           return e && { sortie_id: id, joueur: f.dataset.joueur, nom: f.dataset.nom, etat: e,
             retard_min: e === 'retard' && min !== '' ? +min : null };
         }).filter(Boolean)
+          .concat(declares.map(i => ({ sortie_id: id, joueur: i.discord_id, nom: i.nom, etat: 'absent_prevenu', retard_min: null })))
           // seules les lignes nouvelles ou modifiées partent (et sont donc journalisées)
           .filter(r => { const a = saisi.get(r.joueur); return !a || a.etat !== r.etat || a.retard_min !== r.retard_min; });
-        const presents = new Set([...lignes.querySelectorAll('.ligne')].map(f => f.dataset.joueur));
+        const presents = new Set([...lignes.querySelectorAll('.ligne')].map(f => f.dataset.joueur).concat(declares.map(i => i.discord_id)));
         const retires = [...saisi.keys()].filter(j => !presents.has(j));
         if (!rangs.length && !retires.length) return etatAppel.textContent = 'Aucune modification.';
         const { error } = rangs.length ? await sb.from('appel').upsert(rangs) : {};
@@ -231,7 +246,9 @@
       // deux onglets : la composition avant la soirée, l'appel une fois commencée
       const panneaux = {
         composition: el('div', {}, message, composition),
-        appel: el('div', {}, etatAppel, lignes, el('p', {}, nouveau, ajouter), enregistrer),
+        appel: el('div', {}, etatAppel,
+          declares.length > 0 && el('p', { className: 'vide', textContent: 'Absence déclarée, compté absent prévenu : ' + declares.map(i => i.nom).join(', ') + '.' }),
+          lignes, el('p', {}, nouveau, ajouter), enregistrer),
       };
       onglet ??= Date.parse(s.debut) > Date.now() ? 'composition' : 'appel';
       const onglets = el('div', { className: 'onglets', role: 'tablist' }, ...Object.keys(panneaux).map(k =>

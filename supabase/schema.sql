@@ -182,6 +182,25 @@ create policy ecrire on public.absences for all
   using (public.est_membre() and joueur = public.mon_discord())
   with check (public.est_membre() and joueur = public.mon_discord());
 
+-- Joueurs absents un jour donné, pour tous les membres (sans le motif, qui reste privé).
+create or replace function public.absents(jour date) returns setof text
+language sql stable security definer set search_path = '' as $$
+  select joueur from public.absences where jour between du and au and public.est_membre()
+$$;
+
+-- Cibles de composition par sortie (sans ligne : valeurs par défaut de la page, 2 / 5 / 18).
+create table if not exists public.cibles (
+  sortie_id text primary key references public.sorties on delete cascade,
+  tanks     int check (tanks >= 0),
+  soigneurs int check (soigneurs >= 0),
+  dps       int check (dps >= 0)
+);
+alter table public.cibles enable row level security;
+drop policy if exists lire on public.cibles;
+create policy lire on public.cibles for select using (public.est_membre());
+drop policy if exists ecrire on public.cibles;
+create policy ecrire on public.cibles for all using (public.est_officier()) with check (public.est_officier());
+
 -- Statistiques d'appel par joueur (lot 1 bis), depuis une date ou depuis le début (null).
 -- Exécutée avec les droits de l'appelant : les règles d'accès de appel la réservent aux officiers.
 -- Le banc n'est ni une présence ni une absence : exclu des soirées, compté à part (« mis au banc »).

@@ -226,3 +226,4 @@ button.btn { background: transparent; color: var(--gold); font-size: 1rem; curso
 .absences .retirer { margin-left: 8px; width: 24px; height: 24px; padding: 0; font-size: 1rem; line-height: 1; color: var(--muted); background: none; border: 1px solid var(--gold-dark); border-radius: 50%; cursor: pointer; }
 .absences .retirer:hover { color: #e06c5a; border-color: #e06c5a; }
 .declarer label { white-space: nowrap; }
+.compo .cible { width: 3.5em; padding: 1px 4px; font-size: .9rem; }
