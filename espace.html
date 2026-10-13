@@ -186,13 +186,17 @@
     }
 
     // Statistiques d'appel (officiers), triables, exportables en CSV
-    // raccourcis : nombre de jours en arrière ('' = depuis le début)
-    const PERIODES = { 28: '4 dernières semaines', 91: '3 derniers mois', '': 'Depuis le début' };
-    const ilYa = jours => jours === '' ? '' : jourParis(Date.now() - jours * 86400e3);
+    const PERIODES = { '3s': '3 semaines', '3m': '3 mois', date: 'une date à choisir' };
+    const debutDe = (choix, date) => { // AAAA-MM-JJ
+      const d = new Date();
+      if (choix === '3s') d.setDate(d.getDate() - 21); else if (choix === '3m') d.setMonth(d.getMonth() - 3); else return date;
+      return jourParis(d);
+    };
     const COLONNES = [['nom', 'Joueur'], ['soirees', 'Soirées'], ['presence', 'Présence %'], ['retard', 'Retard %'],
       ['retard_moyen', 'Retard moyen (min)'], ['absents_prevenus', 'Absent prévenu'], ['absents', 'Absent'], ['bancs', 'Mis au banc']];
 
-    async function stats(debut = ilYa(28), tri = 'bancs', sens = -1) { // debut : AAAA-MM-JJ, '' = depuis le début
+    async function stats(choix = '3s', date = '', tri = 'bancs', sens = -1) {
+      const debut = debutDe(choix, date); // '' (date effacée) = depuis le début
       const { data, error } = await sb.rpc('stats_joueurs', { depuis: debut ? new Date(debut + 'T00:00').toISOString() : null });
       if (error) return ouvrir(fermer(), el('h2', { textContent: 'Statistiques' }), el('p', { textContent: 'Statistiques indisponibles : ' + error.message }));
       const lignes = data.map(r => ({ ...r,
@@ -201,10 +205,11 @@
       const comparer = (a, b) => typeof a === 'string' ? a.localeCompare(b, 'fr') : a - b;
       lignes.sort((a, b) => a[tri] == null ? 1 : b[tri] == null ? -1 : sens * comparer(a[tri], b[tri])); // vides en dernier
 
-      const date = el('input', { type: 'date', value: debut, max: jourParis(Date.now()), onchange: () => stats(date.value, tri, sens) });
-      const choix = el('select', { ariaLabel: 'Raccourcis de période', onchange: () => stats(ilYa(choix.value), tri, sens) },
-        el('option', { textContent: 'Raccourcis…', disabled: true, selected: true }),
-        ...Object.entries(PERIODES).map(([v, t]) => el('option', { value: v, textContent: t })));
+      const liste = el('select', { ariaLabel: 'Période', onchange: () => stats(liste.value, debut, tri, sens) },
+        ...Object.entries(PERIODES).map(([v, t]) => el('option', { value: v, textContent: t, selected: v === choix })));
+      // sélecteur de date seulement pour « une date à choisir », pré-rempli avec le début affiché
+      const champ = choix === 'date' && el('input', { type: 'date', value: debut, max: jourParis(Date.now()), ariaLabel: 'Date de début',
+        onchange: () => stats('date', champ.value, tri, sens) });
       const exporter = () => {
         const cellule = v => `"${String(v ?? '').replaceAll('"', '""')}"`;
         const texte = [COLONNES.map(c => c[1]), ...lignes.map(r => COLONNES.map(([k]) => r[k]))]
@@ -213,12 +218,12 @@
           download: `statistiques-${debut ? 'depuis-' + debut : 'depuis-le-debut'}.csv` }).click();
       };
       ouvrir(fermer(), el('h2', { textContent: 'Statistiques' }),
-        el('p', { className: 'periode' }, el('label', {}, 'Depuis le ', date), ' ', choix),
+        el('p', { className: 'periode' }, 'Depuis le ', liste, champ && ' ', champ),
         el('p', { className: 'vide', textContent: 'Présence : Présent ou Retard sur les soirées appelées, banc exclu. Retard : retards sur les soirées jouées.' }),
         lignes.length ? el('div', { className: 'stats' }, el('table', {},
           el('thead', {}, el('tr', {}, ...COLONNES.map(([k, t]) => el('th', {}, el('button', {
             textContent: t + (k === tri ? (sens > 0 ? ' ▲' : ' ▼') : ''),
-            onclick: () => stats(debut, k, k === tri ? -sens : k === 'nom' ? 1 : -1) }))))),
+            onclick: () => stats(choix, debut, k, k === tri ? -sens : k === 'nom' ? 1 : -1) }))))),
           el('tbody', {}, ...lignes.map(r => el('tr', {}, ...COLONNES.map(([k]) => el('td', { textContent: r[k] ?? '–' })))))))
           : el('p', { textContent: 'Aucun appel sur cette période.' }),
         lignes.length > 0 && bouton('Exporter en CSV', '', exporter));
