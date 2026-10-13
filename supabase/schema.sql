@@ -123,20 +123,32 @@ create policy lire on public.appel_journal for select using (public.est_officier
 -- Statistiques d'appel par joueur (lot 1 bis), depuis une date ou depuis le début (null).
 -- Exécutée avec les droits de l'appelant : les règles d'accès de appel la réservent aux officiers.
 -- Le banc n'est ni une présence ni une absence : exclu des soirées, compté à part (« mis au banc »).
-create or replace function public.stats_joueurs(depuis timestamptz default null)
+-- Inscrit = inscription Raid-Helper autre que « Absence ». Seules comptent les sorties dont l'appel a été fait.
+drop function if exists public.stats_joueurs(timestamptz); -- colonnes de retour modifiées
+create function public.stats_joueurs(depuis timestamptz default null)
 returns table (joueur text, nom text, soirees int, presents int, retards int, retard_moyen int,
-               absents_prevenus int, absents int, bancs int)
+               absents_prevenus int, absents int, bancs int,
+               inscrits int, inscrits_presents int, inscrits_bancs int)
 language sql stable set search_path = '' as $$
-  select a.joueur,
-         (array_agg(a.nom order by s.debut desc))[1], -- nom le plus récent
-         (count(*) filter (where a.etat <> 'banc'))::int,
-         (count(*) filter (where a.etat in ('present', 'retard')))::int,
-         (count(*) filter (where a.etat = 'retard'))::int,
-         round(avg(a.retard_min) filter (where a.etat = 'retard'))::int,
-         (count(*) filter (where a.etat = 'absent_prevenu'))::int,
-         (count(*) filter (where a.etat = 'absent'))::int,
-         (count(*) filter (where a.etat = 'banc'))::int
-  from public.appel a join public.sorties s on s.id = a.sortie_id
-  where depuis is null or s.debut >= depuis
-  group by a.joueur
+  with a as (select * from public.appel),
+       i as (select sortie_id, discord_id as joueur, nom from public.inscriptions where classe is distinct from 'Absence'),
+       l as (select coalesce(a.sortie_id, i.sortie_id) as sortie_id, coalesce(a.joueur, i.joueur) as joueur,
+                    coalesce(a.nom, i.nom) as nom, a.etat, a.retard_min, i.joueur is not null as inscrit
+             from a full join i on i.sortie_id = a.sortie_id and i.joueur = a.joueur)
+  select l.joueur,
+         (array_agg(l.nom order by s.debut desc))[1], -- nom le plus récent
+         (count(*) filter (where l.etat <> 'banc'))::int,
+         (count(*) filter (where l.etat in ('present', 'retard')))::int,
+         (count(*) filter (where l.etat = 'retard'))::int,
+         round(avg(l.retard_min) filter (where l.etat = 'retard'))::int,
+         (count(*) filter (where l.etat = 'absent_prevenu'))::int,
+         (count(*) filter (where l.etat = 'absent'))::int,
+         (count(*) filter (where l.etat = 'banc'))::int,
+         (count(*) filter (where l.inscrit))::int,
+         (count(*) filter (where l.inscrit and l.etat in ('present', 'retard')))::int,
+         (count(*) filter (where l.inscrit and l.etat = 'banc'))::int
+  from l join public.sorties s on s.id = l.sortie_id
+  where (depuis is null or s.debut >= depuis)
+    and exists (select 1 from public.appel x where x.sortie_id = s.id)
+  group by l.joueur
 $$;

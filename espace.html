@@ -193,7 +193,8 @@
       return jourParis(d);
     };
     const COLONNES = [['nom', 'Joueur'], ['soirees', 'Soirées'], ['presence', 'Présence %'], ['retard', 'Retard %'],
-      ['retard_moyen', 'Retard moyen (min)'], ['absents_prevenus', 'Absent prévenu'], ['absents', 'Absent'], ['bancs', 'Mis au banc']];
+      ['retard_moyen', 'Retard moyen (min)'], ['absents_prevenus', 'Absent prévenu'], ['absents', 'Absent'], ['bancs', 'Mis au banc'],
+      ['inscrits', 'Inscrit'], ['inscrits_presents', 'Inscrit et présent'], ['inscrits_bancs', 'Inscrit et mis au banc']];
 
     // la fenêtre et ses réglages sont créés une fois ; seul le résultat est recalculé
     // (sinon le sélecteur de date, recréé à chaque date valide, perdrait la saisie en cours)
@@ -240,7 +241,7 @@
 
       ouvrir(fermer(), el('h2', { textContent: 'Statistiques' }),
         el('p', { className: 'periode' }, 'Depuis le ', liste, ' ', champ),
-        el('p', { className: 'vide', textContent: 'Présence : Présent ou Retard sur les soirées appelées, banc exclu. Retard : retards sur les soirées jouées.' }),
+        el('p', { className: 'vide', textContent: 'Présence : Présent ou Retard sur les soirées appelées, banc exclu. Retard : retards sur les soirées jouées. Inscrit : inscription Raid-Helper hors Absence.' }),
         resultat);
       charger();
     }
