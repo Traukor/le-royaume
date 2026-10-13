@@ -202,5 +202,6 @@ button.btn { background: transparent; color: var(--gold); font-size: 1rem; curso
 .stats table { width: 100%; border-collapse: collapse; font-size: .9rem; }
 .stats th, .stats td { padding: 6px 8px; border-bottom: 1px solid rgba(138, 109, 29, .35); text-align: right; white-space: nowrap; }
 .stats th:first-child, .stats td:first-child { text-align: left; }
+.stats th { white-space: normal; vertical-align: bottom; }
 .stats th button { font: 700 .8rem "Cinzel", serif; color: var(--gold); background: none; border: 0; padding: 0; cursor: pointer; }
 .espace select { padding: 6px 8px; font: inherit; background: var(--bg); color: var(--text); border: 1px solid var(--gold-dark); border-radius: 4px; }
