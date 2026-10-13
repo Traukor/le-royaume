@@ -236,4 +236,4 @@ button.btn { background: transparent; color: var(--gold); font-size: 1rem; curso
 .loots .retirer { margin-left: 8px; width: 24px; height: 24px; padding: 0; font-size: 1rem; line-height: 1; color: var(--muted); background: none; border: 1px solid var(--gold-dark); border-radius: 50%; cursor: pointer; }
 .lien { margin-left: 8px; padding: 0; font: inherit; font-size: .85rem; color: var(--gold); background: none; border: 0; text-decoration: underline; cursor: pointer; }
 .espace input[type=search] { width: min(100%, 360px); padding: 6px 8px; font: inherit; background: var(--bg); color: var(--text); border: 1px solid var(--gold-dark); border-radius: 4px; }
-.zoom:has(.loots .stats:not([hidden])) { width: min(1060px, calc(100% - 32px)); }
+.zoom:has(.loots:not([hidden])) { width: min(1060px, calc(100% - 32px)); }
