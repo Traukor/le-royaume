@@ -72,6 +72,7 @@
       officier = data.autorise;
       moi = session.user.user_metadata.provider_id ?? session.user.user_metadata.sub;
       chargerAbsences();
+      chargerPersos();
       afficher(`Bienvenue ${data.pseudo}${officier ? ', accès officier confirmé' : ''}.`, bouton('Se déconnecter', '', deconnexion));
 
       contenu.replaceChildren(el('p', { textContent: 'Récupération des sorties Raid-Helper…' }));
@@ -109,7 +110,8 @@
       });
       contenu.replaceChildren(
         ...(avertissement ? [el('p', { className: 'vide', textContent: avertissement })] : []),
-        ...(officier ? [el('p', { className: 'outils' }, bouton('Statistiques', '', () => stats()), ' ', bouton('Actualiser', '', actualiser))] : []),
+        el('p', { className: 'outils' }, officier && bouton('Statistiques', '', () => stats()),
+          bouton(officier ? 'Loots' : 'Mes loots', '', historique), officier && bouton('Actualiser', '', actualiser)),
         el('div', { className: 'cal-tete' },
           el('button', { className: 'nav-mois', textContent: '‹', ariaLabel: 'Mois précédent', onclick: changer(-1) }),
           el('h2', { textContent: mois.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) }),
@@ -117,7 +119,7 @@
         el('div', { className: 'cal' },
           ...['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.'].map(j => el('div', { className: 'jsem', textContent: j })),
           ...cases),
-        blocAbsences);
+        blocAbsences, blocPersos);
     }
 
     // synchronisation immédiate, sans attendre le délai de 5 minutes (officiers)
@@ -138,6 +140,11 @@
     const CIBLES = { Tanks: 2, Soigneurs: 5, DPS: 13 }; // par défaut ; réglables par sortie (table cibles)
     const COLONNES_CIBLES = { Tanks: 'tanks', Soigneurs: 'soigneurs', DPS: 'dps' };
     const STATUTS = { '': '—', valide: 'Validé', attente: 'En attente' };
+    const ONGLETS = { composition: 'Composition', appel: 'Appel', loots: 'Loots' };
+    const DESTINATIONS = { joueur: 'Pour un joueur', desenchante: 'Désenchanté', banque: 'Banque' };
+    const TYPES = { '+1': '+1 spé principale', '+2': '+2 spé secondaire', '+3': '+3 collection' };
+    const pourQui = l => l.destination !== 'joueur' ? DESTINATIONS[l.destination].toLowerCase()
+      : `${l.personnage ? l.personnage + ' (' + l.nom + ')' : l.nom} ${l.type ?? ''}`.trim();
 
     async function sortie(id, onglet) {
       const [{ data: s }, { data: inscrits }, { data: appel }, { data: compo }, { data: reglage }] = await Promise.all([
@@ -148,6 +155,11 @@
         sb.from('cibles').select('*').eq('sortie_id', id).maybeSingle(),
       ]);
       if (!s) return;
+      const [{ data: loots }, { data: persos }, { data: stats3m }] = officier ? await Promise.all([
+        sb.from('loots').select('*').eq('sortie_id', id).order('le'),
+        sb.from('personnages').select('*').order('proprietaire').order('nom'),
+        sb.rpc('stats_joueurs', { depuis: debutDe('3m') + 'T00:00:00' }),
+      ]) : [{}, {}, {}];
       const jour = jourParis(s.debut);
       const { data: absents } = await sb.rpc('absents', { jour }); // absences déclarées couvrant la soirée
       const entete = [fermer(), el('h2',{ textContent: s.titre || 'Sortie' }),
@@ -243,22 +255,137 @@
         calendrier(); // nombre d'inscrits à jour derrière la fenêtre
       });
 
-      // deux onglets : la composition avant la soirée, l'appel une fois commencée
+      // Loots : saisie rapide, avec l'aide à la décision (présence, loots et dernier loot des présents sur 3 mois)
+      const presentsAppel = appel.filter(a => a.etat === 'present' || a.etat === 'retard');
+      const candidats = presentsAppel.length ? presentsAppel.map(a => ({ joueur: a.joueur, nom: a.nom }))
+        : inscrits.filter(i => !absent.has(i.discord_id) && i.classe !== 'Absence').map(i => ({ joueur: i.discord_id, nom: i.nom }));
+      const chiffres = new Map((stats3m ?? []).map(r => [r.joueur, r]));
+      const dateCourte = d => new Date(d).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris', day: 'numeric', month: 'short' });
+      const aide = el('div', { className: 'stats' }, el('table', {},
+        el('thead', {}, el('tr', {}, ...['Présent', 'Présence % (3 mois)', 'Loots (3 mois)', 'Dernier loot'].map(t => el('th', { textContent: t })))),
+        el('tbody', {}, ...candidats.map(c => {
+          const r = chiffres.get(c.joueur);
+          return el('tr', {}, el('td', { textContent: c.nom }),
+            el('td', { textContent: r?.soirees ? Math.round(100 * r.presents / r.soirees) : '–' }),
+            el('td', { textContent: r?.loots ?? 0 }),
+            el('td', { textContent: r?.dernier_loot ? `${r.dernier_loot} (${dateCourte(r.dernier_loot_le)})` : '–' }));
+        }))));
+      const messageLoot = el('p', { className: 'vide' });
+      const objet = el('input', { type: 'text', placeholder: 'Objet', ariaLabel: 'Objet' });
+      const boss = el('input', { type: 'text', placeholder: 'Boss', ariaLabel: 'Boss', value: loots?.at(-1)?.boss ?? '' });
+      const destination = el('select', { ariaLabel: 'Destination' }, ...Object.entries(DESTINATIONS).map(([v, t]) => el('option', { value: v, textContent: t })));
+      // personnages des présents d'abord ; un présent sans personnage peut recevoir à son nom
+      const presentsIds = new Set(candidats.map(c => c.joueur));
+      const optionPerso = p => el('option', { value: 'p:' + p.id, textContent: `${p.nom}${p.classe ? ' — ' + p.classe : ''} (${p.proprietaire})` });
+      const receveur = el('select', { ariaLabel: 'Personnage' },
+        el('optgroup', { label: 'Présents' }, ...candidats.flatMap(c => {
+          const siens = (persos ?? []).filter(p => p.joueur === c.joueur);
+          return siens.length ? siens.map(optionPerso) : [el('option', { value: 'j:' + c.joueur, textContent: `${c.nom} (sans personnage)` })];
+        })),
+        el('optgroup', { label: 'Autres personnages' }, ...(persos ?? []).filter(p => !presentsIds.has(p.joueur)).map(optionPerso)));
+      const type = el('select', { ariaLabel: 'Type de demande' }, ...Object.entries(TYPES).map(([v, t]) => el('option', { value: v, textContent: t })));
+      destination.onchange = () => { receveur.hidden = type.hidden = destination.value !== 'joueur'; };
+      const ajouterLoot = bouton('Ajouter le loot', 'discord', async () => {
+        if (!objet.value.trim()) return messageLoot.textContent = "Indiquez l'objet.";
+        const ligne = { sortie_id: id, objet: objet.value.trim(), boss: boss.value.trim() || null, destination: destination.value };
+        if (destination.value === 'joueur') {
+          const [genre, cle] = [receveur.value.slice(0, 2), receveur.value.slice(2)];
+          if (!cle) return messageLoot.textContent = 'Choisissez qui reçoit le loot.';
+          Object.assign(ligne, { type: type.value }, genre === 'p:' ? { personnage_id: +cle }
+            : { joueur: cle, nom: candidats.find(c => c.joueur === cle)?.nom });
+        }
+        const { error } = await sb.from('loots').insert(ligne);
+        if (error) return messageLoot.textContent = "L'enregistrement a échoué : " + error.message;
+        sortie(id, 'loots');
+      });
+      const supprimerLoot = l => async () => {
+        const { error } = await sb.from('loots').delete().eq('id', l.id);
+        if (error) return messageLoot.textContent = 'La suppression a échoué : ' + error.message;
+        sortie(id, 'loots');
+      };
+      const listeLoots = el('ul', { className: 'inscrits' }, ...(loots ?? []).map(l => el('li', {},
+        el('strong', { textContent: l.objet }), l.boss && el('span', { textContent: ' — ' + l.boss }),
+        ' → ' + pourQui(l),
+        el('button', { className: 'retirer', type: 'button', textContent: '×', title: 'Supprimer', ariaLabel: 'Supprimer ' + l.objet, onclick: supprimerLoot(l) }))));
+
+      // onglets : la composition avant la soirée, l'appel une fois commencée, puis les loots
       const panneaux = {
         composition: el('div', {}, message, composition),
         appel: el('div', {}, etatAppel,
           declares.length > 0 && el('p', { className: 'vide', textContent: 'Absence déclarée, compté absent prévenu : ' + declares.map(i => i.nom).join(', ') + '.' }),
           lignes, el('p', {}, nouveau, ajouter), enregistrer),
+        loots: el('div', { className: 'loots' }, (loots ?? []).length ? listeLoots : el('p', { className: 'vide', textContent: 'Aucun loot saisi pour cette sortie.' }),
+          el('h3', { textContent: 'Aide à la décision' }), candidats.length ? aide : el('p', { className: 'vide', textContent: 'Aucun présent.' }),
+          el('h3', { textContent: 'Nouveau loot' }),
+          el('p', { className: 'saisie' }, objet, boss, destination, receveur, type), ajouterLoot, messageLoot),
       };
       onglet ??= Date.parse(s.debut) > Date.now() ? 'composition' : 'appel';
       const onglets = el('div', { className: 'onglets', role: 'tablist' }, ...Object.keys(panneaux).map(k =>
-        el('button', { type: 'button', role: 'tab', textContent: k === 'appel' ? 'Appel' : 'Composition', ariaSelected: k === onglet,
+        el('button', { type: 'button', role: 'tab', textContent: ONGLETS[k], ariaSelected: k === onglet,
           onclick: e => {
             for (const b of e.target.parentNode.children) b.ariaSelected = b === e.target;
             for (const [n, p] of Object.entries(panneaux)) p.hidden = n !== k;
           } })));
       for (const [n, p] of Object.entries(panneaux)) p.hidden = n !== onglet;
-      ouvrir(...entete, onglets, panneaux.composition, panneaux.appel);
+      ouvrir(...entete, onglets, ...Object.values(panneaux));
+    }
+
+    // Historique des loots, filtrable (officiers : tous ; membre : les siens, par les règles d'accès)
+    async function historique() {
+      const { data, error } = await sb.from('loots').select('*, sorties(titre)').order('le', { ascending: false });
+      if (error) return ouvrir(fermer(), el('h2', { textContent: 'Loots' }), el('p', { textContent: 'Loots indisponibles : ' + error.message }));
+      const filtre = el('input', { type: 'search', placeholder: 'Filtrer : joueur, personnage, objet, boss…', ariaLabel: 'Filtrer' });
+      const corps = el('tbody');
+      const remplir = () => {
+        const f = filtre.value.trim().toLowerCase();
+        corps.replaceChildren(...data.filter(l => !f || [l.objet, l.boss, l.nom, l.personnage].some(v => v?.toLowerCase().includes(f)))
+          .map(l => el('tr', {}, ...[new Date(l.le).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' }), l.objet, l.boss,
+            pourQui(l), l.sorties?.titre, l.modifie_par].map(v => el('td', { textContent: v ?? '–' })))));
+      };
+      filtre.oninput = remplir;
+      remplir();
+      ouvrir(fermer(), el('h2', { textContent: officier ? 'Loots' : 'Mes loots' }),
+        data.length ? el('p', {}, filtre) : el('p', { textContent: 'Aucun loot pour le moment.' }),
+        data.length > 0 && el('div', { className: 'stats' }, el('table', {},
+          el('thead', {}, el('tr', {}, ...['Date', 'Objet', 'Boss', 'Pour', 'Sortie', 'Saisi par'].map(t => el('th', { textContent: t })))), corps)));
+    }
+
+    // Mes personnages : principal et secondaires (base des loots par personnage)
+    const blocPersos = el('section', { className: 'absences' });
+    const CLASSES = ['Chaman', 'Chasseur', 'Chevalier de la mort', 'Démoniste', 'Druide', 'Guerrier', 'Mage', 'Paladin', 'Prêtre', 'Voleur'];
+
+    async function chargerPersos() {
+      const { data, error } = await sb.from('personnages').select('*').eq('joueur', moi).order('nom');
+      if (error) return blocPersos.replaceChildren(el('p', { textContent: 'Personnages indisponibles pour le moment.' }));
+      const nom = el('input', { type: 'text', placeholder: 'Nom', ariaLabel: 'Nom du personnage' });
+      const classe = el('input', { type: 'text', placeholder: 'Classe', ariaLabel: 'Classe' });
+      classe.setAttribute('list', 'classes'); // propriété list en lecture seule
+      const spe = el('input', { type: 'text', placeholder: 'Spécialisation', ariaLabel: 'Spécialisation' });
+      const message = el('p', { className: 'vide' });
+      const agir = action => async () => {
+        const { error } = await action();
+        if (error) return message.textContent = "L'enregistrement a échoué : " + error.message;
+        chargerPersos();
+      };
+      const ajouterPerso = bouton('Ajouter', '', () => nom.value.trim()
+        ? agir(() => sb.from('personnages').insert({ nom: nom.value.trim(), classe: classe.value.trim() || null,
+            spe: spe.value.trim() || null, principal: !data.length }))() // le premier est le principal
+        : message.textContent = 'Indiquez le nom du personnage.');
+      // un seul principal : on retire l'ancien avant de poser le nouveau
+      const principal = p => agir(async () => (await sb.from('personnages').update({ principal: false }).eq('joueur', moi).neq('id', p.id)).error
+        ? { error: { message: 'changement de principal impossible' } } : sb.from('personnages').update({ principal: true }).eq('id', p.id));
+      blocPersos.replaceChildren(
+        el('h2', { textContent: 'Mes personnages' }),
+        el('datalist', { id: 'classes' }, ...CLASSES.map(c => el('option', { value: c }))),
+        data.length ? el('ul', { className: 'inscrits' }, ...data.map(p => el('li', {},
+          el('strong', { textContent: p.nom }), el('span', { textContent: ' ' + [p.spe, p.classe].filter(Boolean).join(' ') }),
+          p.principal ? el('em', { textContent: ' principal' })
+            : el('button', { className: 'lien', type: 'button', textContent: 'définir comme principal', onclick: principal(p) }),
+          el('button', { className: 'retirer', type: 'button', textContent: '×', title: 'Supprimer', ariaLabel: 'Supprimer ' + p.nom,
+            onclick: agir(() => sb.from('personnages').delete().eq('id', p.id)) }))))
+          : el('p', { textContent: 'Aucun personnage : ajoutez au moins votre personnage principal, il sert à noter vos loots.' }),
+        el('p', { className: 'declarer' }, nom, ' ', classe, ' ', spe, ' ', ajouterPerso),
+        message);
     }
 
     // Absences longues : chacun déclare les siennes ; les officiers voient celles de tous
@@ -306,7 +433,8 @@
     };
     const COLONNES = [['nom', 'Joueur'], ['soirees', 'Soirées'], ['presence', 'Présence %'], ['retard', 'Retard %'],
       ['retard_moyen', 'Retard moyen (min)'], ['absents_prevenus', 'Absent prévenu'], ['absents', 'Absent'], ['bancs', 'Mis au banc'],
-      ['inscrits', 'Inscrit'], ['inscrits_valides', 'Inscrit et validé'], ['inscrits_presents', 'Inscrit et présent'], ['inscrits_bancs', 'Inscrit et mis au banc']];
+      ['inscrits', 'Inscrit'], ['inscrits_valides', 'Inscrit et validé'], ['inscrits_presents', 'Inscrit et présent'], ['inscrits_bancs', 'Inscrit et mis au banc'],
+      ['loots', 'Loots'], ['loots_soiree', 'Loots / soirée présente'], ['dernier', 'Dernier loot']];
 
     // la fenêtre et ses réglages sont créés une fois ; seul le résultat est recalculé
     // (sinon le sélecteur de date, recréé à chaque date valide, perdrait la saisie en cours)
@@ -331,7 +459,9 @@
         if (error) return resultat.replaceChildren(el('p', { textContent: 'Statistiques indisponibles : ' + error.message }));
         const lignes = data.map(r => ({ ...r,
           presence: r.soirees ? Math.round(100 * r.presents / r.soirees) : null,
-          retard: r.presents ? Math.round(100 * r.retards / r.presents) : null }));
+          retard: r.presents ? Math.round(100 * r.retards / r.presents) : null,
+          loots_soiree: r.presents ? Math.round(100 * r.loots / r.presents) / 100 : null,
+          dernier: r.dernier_loot && `${r.dernier_loot} (${new Date(r.dernier_loot_le).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })})` }));
         const comparer = (a, b) => typeof a === 'string' ? a.localeCompare(b, 'fr') : a - b;
         lignes.sort((a, b) => a[tri] == null ? 1 : b[tri] == null ? -1 : sens * comparer(a[tri], b[tri])); // vides en dernier
 

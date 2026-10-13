@@ -227,3 +227,13 @@ button.btn { background: transparent; color: var(--gold); font-size: 1rem; curso
 .absences .retirer:hover { color: #e06c5a; border-color: #e06c5a; }
 .declarer label { white-space: nowrap; }
 .compo .cible { width: 3.5em; padding: 1px 4px; font-size: .9rem; }
+
+/* lot 3 : outils, loots, personnages */
+.outils { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+.loots { text-align: left; }
+.loots h3 { margin: 16px 0 6px; color: var(--gold); font-size: 1rem; }
+.loots .saisie { display: flex; flex-wrap: wrap; gap: 8px; }
+.loots .retirer { margin-left: 8px; width: 24px; height: 24px; padding: 0; font-size: 1rem; line-height: 1; color: var(--muted); background: none; border: 1px solid var(--gold-dark); border-radius: 50%; cursor: pointer; }
+.lien { margin-left: 8px; padding: 0; font: inherit; font-size: .85rem; color: var(--gold); background: none; border: 0; text-decoration: underline; cursor: pointer; }
+.espace input[type=search] { width: min(100%, 360px); padding: 6px 8px; font: inherit; background: var(--bg); color: var(--text); border: 1px solid var(--gold-dark); border-radius: 4px; }
+.zoom:has(.loots .stats:not([hidden])) { width: min(1060px, calc(100% - 32px)); }
