@@ -196,3 +196,11 @@ button.btn { background: transparent; color: var(--gold); font-size: 1rem; curso
 .espace input[type=text], .espace input[type=number] { padding: 6px 8px; font: inherit; background: var(--bg); color: var(--text); border: 1px solid var(--gold-dark); border-radius: 4px; }
 .ligne .retirer { margin-left: 8px; width: 24px; height: 24px; padding: 0; font-size: 1rem; line-height: 1; color: var(--muted); background: none; border: 1px solid var(--gold-dark); border-radius: 50%; cursor: pointer; vertical-align: middle; }
 .ligne .retirer:hover { color: #e06c5a; border-color: #e06c5a; }
+
+/* statistiques d'appel */
+.stats { overflow-x: auto; margin-bottom: 12px; }
+.stats table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+.stats th, .stats td { padding: 6px 8px; border-bottom: 1px solid rgba(138, 109, 29, .35); text-align: right; white-space: nowrap; }
+.stats th:first-child, .stats td:first-child { text-align: left; }
+.stats th button { font: 700 .8rem "Cinzel", serif; color: var(--gold); background: none; border: 0; padding: 0; cursor: pointer; }
+.espace select { padding: 6px 8px; font: inherit; background: var(--bg); color: var(--text); border: 1px solid var(--gold-dark); border-radius: 4px; }

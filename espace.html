@@ -107,6 +107,7 @@
       });
       contenu.replaceChildren(
         ...(avertissement ? [el('p', { className: 'vide', textContent: avertissement })] : []),
+        ...(officier ? [bouton('Statistiques', '', () => stats())] : []),
         el('div', { className: 'cal-tete' },
           el('button', { className: 'nav-mois', textContent: '‹', ariaLabel: 'Mois précédent', onclick: changer(-1) }),
           el('h2', { textContent: mois.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) }),
@@ -127,8 +128,7 @@
         officier ? sb.from('appel').select('*').eq('sortie_id', id) : { data: [] },
       ]);
       if (!s) return;
-      const entete = [el('button', { className: 'fermer', textContent: '×', ariaLabel: 'Fermer', onclick: () => zoom.close() }),
-        el('h2', { textContent: s.titre || 'Sortie' }),
+      const entete = [fermer(), el('h2',{ textContent: s.titre || 'Sortie' }),
         el('p', { textContent: quand(s.debut) + (s.chef ? ' — menée par ' + s.chef : '') })];
       const detail = i => [i.spe, i.classe].filter(Boolean).join(' ');
 
@@ -185,9 +185,46 @@
       ouvrir(...entete, message, lignes, el('p', {}, nouveau, ajouter), enregistrer);
     }
 
+    // Statistiques d'appel (officiers), triables, exportables en CSV
+    const PERIODES = { 28: '4 dernières semaines', 91: '3 derniers mois', '': 'Depuis le début' };
+    const COLONNES = [['nom', 'Joueur'], ['soirees', 'Soirées'], ['presence', 'Présence %'], ['retard', 'Retard %'],
+      ['retard_moyen', 'Retard moyen (min)'], ['absents_prevenus', 'Absent prévenu'], ['absents', 'Absent'], ['bancs', 'Mis au banc']];
+
+    async function stats(periode = '28', tri = 'bancs', sens = -1) {
+      const depuis = periode ? new Date(Date.now() - periode * 86400e3).toISOString() : null;
+      const { data, error } = await sb.rpc('stats_joueurs', { depuis });
+      if (error) return ouvrir(fermer(), el('h2', { textContent: 'Statistiques' }), el('p', { textContent: 'Statistiques indisponibles : ' + error.message }));
+      const lignes = data.map(r => ({ ...r,
+        presence: r.soirees ? Math.round(100 * r.presents / r.soirees) : null,
+        retard: r.presents ? Math.round(100 * r.retards / r.presents) : null }));
+      const comparer = (a, b) => typeof a === 'string' ? a.localeCompare(b, 'fr') : a - b;
+      lignes.sort((a, b) => a[tri] == null ? 1 : b[tri] == null ? -1 : sens * comparer(a[tri], b[tri])); // vides en dernier
+
+      const choix = el('select', { onchange: () => stats(choix.value, tri, sens) },
+        ...Object.entries(PERIODES).map(([v, t]) => el('option', { value: v, textContent: t, selected: v === periode })));
+      const exporter = () => {
+        const cellule = v => `"${String(v ?? '').replaceAll('"', '""')}"`;
+        const texte = [COLONNES.map(c => c[1]), ...lignes.map(r => COLONNES.map(([k]) => r[k]))]
+          .map(l => l.map(cellule).join(';')).join('\r\n'); // « ; » et BOM : ouverture directe dans Excel en français
+        el('a', { href: URL.createObjectURL(new Blob(['﻿' + texte], { type: 'text/csv' })),
+          download: `statistiques-${PERIODES[periode].toLowerCase().replaceAll(' ', '-')}.csv` }).click();
+      };
+      ouvrir(fermer(), el('h2', { textContent: 'Statistiques' }),
+        el('p', {}, choix),
+        el('p', { className: 'vide', textContent: 'Présence : Présent ou Retard sur les soirées appelées, banc exclu. Retard : retards sur les soirées jouées.' }),
+        lignes.length ? el('div', { className: 'stats' }, el('table', {},
+          el('thead', {}, el('tr', {}, ...COLONNES.map(([k, t]) => el('th', {}, el('button', {
+            textContent: t + (k === tri ? (sens > 0 ? ' ▲' : ' ▼') : ''),
+            onclick: () => stats(periode, k, k === tri ? -sens : k === 'nom' ? 1 : -1) }))))),
+          el('tbody', {}, ...lignes.map(r => el('tr', {}, ...COLONNES.map(([k]) => el('td', { textContent: r[k] ?? '–' })))))))
+          : el('p', { textContent: 'Aucun appel sur cette période.' }),
+        lignes.length > 0 && bouton('Exporter en CSV', '', exporter));
+    }
+
     // « zoom » sur une sortie : fenêtre native par-dessus le calendrier, fermée uniquement par la croix
     // (ni Échap ni clic à côté : un appel en cours de saisie ne se perd pas par mégarde)
     const zoom = document.getElementById('zoom');
+    const fermer = () => el('button', { className: 'fermer', textContent: '×', ariaLabel: 'Fermer', onclick: () => zoom.close() });
     const ouvrir = (...enfants) => {
       zoom.replaceChildren(el('div', { className: 'zoom-in' }, ...enfants));
       if (!zoom.open) zoom.showModal();

@@ -119,3 +119,24 @@ drop policy if exists retirer on public.appel;
 create policy retirer on public.appel for delete using (public.est_officier());
 drop policy if exists lire on public.appel_journal;
 create policy lire on public.appel_journal for select using (public.est_officier());
+
+-- Statistiques d'appel par joueur (lot 1 bis), depuis une date ou depuis le début (null).
+-- Exécutée avec les droits de l'appelant : les règles d'accès de appel la réservent aux officiers.
+-- Le banc n'est ni une présence ni une absence : exclu des soirées, compté à part (« mis au banc »).
+create or replace function public.stats_joueurs(depuis timestamptz default null)
+returns table (joueur text, nom text, soirees int, presents int, retards int, retard_moyen int,
+               absents_prevenus int, absents int, bancs int)
+language sql stable set search_path = '' as $$
+  select a.joueur,
+         (array_agg(a.nom order by s.debut desc))[1], -- nom le plus récent
+         (count(*) filter (where a.etat <> 'banc'))::int,
+         (count(*) filter (where a.etat in ('present', 'retard')))::int,
+         (count(*) filter (where a.etat = 'retard'))::int,
+         round(avg(a.retard_min) filter (where a.etat = 'retard'))::int,
+         (count(*) filter (where a.etat = 'absent_prevenu'))::int,
+         (count(*) filter (where a.etat = 'absent'))::int,
+         (count(*) filter (where a.etat = 'banc'))::int
+  from public.appel a join public.sorties s on s.id = a.sortie_id
+  where depuis is null or s.debut >= depuis
+  group by a.joueur
+$$;
