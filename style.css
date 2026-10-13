@@ -199,6 +199,7 @@ button.btn { background: transparent; color: var(--gold); font-size: 1rem; curso
 
 /* statistiques d'appel */
 .stats { overflow-x: auto; margin-bottom: 12px; }
+.zoom:has(.stats) { width: min(1060px, calc(100% - 32px)); }
 .stats table { width: 100%; border-collapse: collapse; font-size: .9rem; }
 .stats th, .stats td { padding: 6px 8px; border-bottom: 1px solid rgba(138, 109, 29, .35); text-align: right; white-space: nowrap; }
 .stats th:first-child, .stats td:first-child { text-align: left; }
