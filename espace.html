@@ -285,7 +285,7 @@
         el('optgroup', { label: 'Autres personnages' }, ...(persos ?? []).filter(p => !presentsIds.has(p.joueur)).map(optionPerso)));
       const type = el('select', { ariaLabel: 'Type de demande' }, ...Object.entries(TYPES).map(([v, t]) => el('option', { value: v, textContent: t })));
       destination.onchange = () => { receveur.hidden = type.hidden = destination.value !== 'joueur'; };
-      const ajouterLoot = bouton('Ajouter le loot', 'discord', async () => {
+      const ajouterLoot = bouton('Ajouter le loot', '', async () => {
         if (!objet.value.trim()) return messageLoot.textContent = "Indiquez l'objet.";
         const ligne = { sortie_id: id, objet: objet.value.trim(), boss: boss.value.trim() || null, destination: destination.value };
         if (destination.value === 'joueur') {
