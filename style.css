@@ -193,7 +193,7 @@ button.btn { background: transparent; color: var(--gold); font-size: 1rem; curso
 .ligne label { display: inline-block; margin: 4px 14px 4px 0; white-space: nowrap; }
 .ligne .min input { width: 4.5em; }
 .ligne:not(:has(input[value=retard]:checked)) .min { display: none; }
-.espace input[type=text], .espace input[type=number] { padding: 6px 8px; font: inherit; background: var(--bg); color: var(--text); border: 1px solid var(--gold-dark); border-radius: 4px; }
+.espace input[type=text], .espace input[type=number], .espace input[type=date] { padding: 6px 8px; font: inherit; background: var(--bg); color: var(--text); border: 1px solid var(--gold-dark); border-radius: 4px; }
 .ligne .retirer { margin-left: 8px; width: 24px; height: 24px; padding: 0; font-size: 1rem; line-height: 1; color: var(--muted); background: none; border: 1px solid var(--gold-dark); border-radius: 50%; cursor: pointer; vertical-align: middle; }
 .ligne .retirer:hover { color: #e06c5a; border-color: #e06c5a; }
 
