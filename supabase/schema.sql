@@ -188,7 +188,7 @@ language sql stable security definer set search_path = '' as $$
   select joueur from public.absences where jour between du and au and public.est_membre()
 $$;
 
--- Cibles de composition par sortie (sans ligne : valeurs par défaut de la page, 2 / 5 / 12).
+-- Cibles de composition par sortie (sans ligne : valeurs par défaut de la page, 2 / 5 / 13).
 create table if not exists public.cibles (
   sortie_id text primary key references public.sorties on delete cascade,
   tanks     int check (tanks >= 0),
