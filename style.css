@@ -213,11 +213,15 @@ button.btn { background: transparent; color: var(--gold); font-size: 1rem; curso
 .onglets button { padding: 6px 16px; font: 700 .85rem "Cinzel", serif; color: var(--gold); background: none; border: 1px solid var(--gold-dark); border-radius: 4px; cursor: pointer; }
 .onglets button[aria-selected="true"] { background: var(--gold); color: var(--bg); border-color: var(--gold); }
 .compo { text-align: left; }
+.compo section { padding: 0; }
+.compo ul { margin: 0; }
+.zoom p.vide:empty { display: none; }
 .compo h3 { margin: 14px 0 4px; color: var(--gold); font-size: 1rem; }
 .compo li { padding: 3px 0; }
 .compo em { color: var(--muted); }
 .compo .statut { margin-left: 8px; padding: 2px 4px; font-size: .85rem; }
-.absences { margin-top: 32px; text-align: left; }
+.absences { margin-top: 32px; padding: 0; text-align: left; }
+.absences h2 { font-size: 1.5rem; }
 .absences h2 { text-align: center; }
 .absences .retirer { margin-left: 8px; width: 24px; height: 24px; padding: 0; font-size: 1rem; line-height: 1; color: var(--muted); background: none; border: 1px solid var(--gold-dark); border-radius: 50%; cursor: pointer; }
 .absences .retirer:hover { color: #e06c5a; border-color: #e06c5a; }
