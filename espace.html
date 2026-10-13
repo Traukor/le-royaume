@@ -135,7 +135,7 @@
     // rôle Raid-Helper (« Tanks », « Healers »…) ou, à défaut, classe de rôle (« Tank », « Healer »…)
     const roleDe = i => { const r = `${i.role} ${i.classe}`.toLowerCase();
       return r.includes('tank') ? 'Tanks' : r.includes('heal') ? 'Soigneurs' : /melee|ranged|dps/.test(r) ? 'DPS' : 'Autres'; };
-    const CIBLES = { Tanks: 2, Soigneurs: 5, DPS: 18 }; // par défaut ; réglables par sortie (table cibles)
+    const CIBLES = { Tanks: 2, Soigneurs: 5, DPS: 12 }; // par défaut ; réglables par sortie (table cibles)
     const COLONNES_CIBLES = { Tanks: 'tanks', Soigneurs: 'soigneurs', DPS: 'dps' };
     const STATUTS = { '': '—', valide: 'Validé', attente: 'En attente' };
 
