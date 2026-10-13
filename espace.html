@@ -70,6 +70,8 @@
       if (error) return afficher('La vérification a échoué. Réessayez plus tard.', bouton('Se déconnecter', '', deconnexion));
       if (!data.membre) return afficher("Ce compte Discord n'est pas sur le serveur de la guilde.", bouton('Se déconnecter', '', deconnexion));
       officier = data.autorise;
+      moi = session.user.user_metadata.provider_id ?? session.user.user_metadata.sub;
+      chargerAbsences();
       afficher(`Bienvenue ${data.pseudo}${officier ? ', accès officier confirmé' : ''}.`, bouton('Se déconnecter', '', deconnexion));
 
       contenu.replaceChildren(el('p', { textContent: 'Récupération des sorties Raid-Helper…' }));
@@ -107,35 +109,74 @@
       });
       contenu.replaceChildren(
         ...(avertissement ? [el('p', { className: 'vide', textContent: avertissement })] : []),
-        ...(officier ? [bouton('Statistiques', '', () => stats())] : []),
+        ...(officier ? [el('p', { className: 'outils' }, bouton('Statistiques', '', () => stats()), ' ', bouton('Actualiser', '', actualiser))] : []),
         el('div', { className: 'cal-tete' },
           el('button', { className: 'nav-mois', textContent: '‹', ariaLabel: 'Mois précédent', onclick: changer(-1) }),
           el('h2', { textContent: mois.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) }),
           el('button', { className: 'nav-mois', textContent: '›', ariaLabel: 'Mois suivant', onclick: changer(1) })),
         el('div', { className: 'cal' },
           ...['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.'].map(j => el('div', { className: 'jsem', textContent: j })),
-          ...cases));
+          ...cases),
+        blocAbsences);
+    }
+
+    // synchronisation immédiate, sans attendre le délai de 5 minutes (officiers)
+    async function actualiser(e) {
+      e.target.disabled = true;
+      e.target.textContent = 'Actualisation…';
+      const { error } = await sb.functions.invoke('synchro-raidhelper', { body: { forcer: true } });
+      calendrier(error ? 'Actualisation impossible pour le moment.' : null);
     }
 
     // Raid-Helper range les absents, retards, incertains et remplaçants comme des « classes »
     const PREREMPLI = { Absence: 'absent_prevenu', Late: 'retard', Bench: 'banc', Tentative: null };
+    const SPECIAUX = { Absence: 'Absents', Late: 'En retard', Tentative: 'Incertains', Bench: 'Remplaçants' };
     const ETATS = { present: 'Présent', retard: 'Retard', absent_prevenu: 'Absent prévenu', absent: 'Absent', banc: 'Banc' };
+    const ROLES = { Tanks: 'Tanks', Healers: 'Soigneurs', Melee: 'DPS', Ranged: 'DPS' };
+    const CIBLES = { Tanks: 2, Soigneurs: 5, DPS: 18 }; // ponytail: cibles fixes, à rendre réglables si la taille du raid change
+    const STATUTS = { '': '—', valide: 'Validé', attente: 'En attente' };
 
-    async function sortie(id) {
-      const [{ data: s }, { data: inscrits }, { data: appel }] = await Promise.all([
+    async function sortie(id, onglet) {
+      const [{ data: s }, { data: inscrits }, { data: appel }, { data: compo }, { data: absences }] = await Promise.all([
         sb.from('sorties').select('*').eq('id', id).single(),
         sb.from('inscriptions').select('*').eq('sortie_id', id).order('position'),
         officier ? sb.from('appel').select('*').eq('sortie_id', id) : { data: [] },
+        sb.from('composition').select('*').eq('sortie_id', id),
+        officier ? sb.from('absences').select('joueur, du, au') : { data: [] },
       ]);
       if (!s) return;
       const entete = [fermer(), el('h2',{ textContent: s.titre || 'Sortie' }),
         el('p', { textContent: quand(s.debut) + (s.chef ? ' — menée par ' + s.chef : '') })];
       const detail = i => [i.spe, i.classe].filter(Boolean).join(' ');
+      const statut = new Map((compo ?? []).map(c => [c.joueur, c.statut]));
+      const jour = jourParis(s.debut);
+      const absent = new Set((absences ?? []).filter(a => a.du <= jour && jour <= a.au).map(a => a.joueur));
 
-      if (!officier) return ouvrir(...entete, el('ul', { className: 'inscrits' },
-        ...inscrits.map(i => el('li', {}, el('strong', { textContent: i.nom }), el('span', { textContent: ' ' + detail(i) })))));
+      // Composition : inscrits par rôle, avec la cible ; les officiers valident ou mettent en attente
+      const message = el('p', { className: 'vide' });
+      const choisir = i => el('select', { className: 'statut', ariaLabel: 'Statut de ' + i.nom, onchange: async e => {
+        const v = e.target.value;
+        const { error } = v ? await sb.from('composition').upsert({ sortie_id: id, joueur: i.discord_id, statut: v })
+          : await sb.from('composition').delete().eq('sortie_id', id).eq('joueur', i.discord_id);
+        if (error) return message.textContent = "L'enregistrement a échoué : " + error.message;
+        sortie(id, 'composition'); // compteurs à jour
+      } }, ...Object.entries(STATUTS).map(([v, t]) => el('option', { value: v, textContent: t, selected: v === (statut.get(i.discord_id) ?? '') })));
+      const groupes = Map.groupBy(inscrits, i => SPECIAUX[i.classe] ?? ROLES[i.role] ?? 'Autres');
+      const ordre = ['Tanks', 'Soigneurs', 'DPS', 'Autres', ...Object.values(SPECIAUX)];
+      const composition = el('div', { className: 'compo' }, ...ordre.filter(g => groupes.has(g) || CIBLES[g]).map(g => {
+        const liste = groupes.get(g) ?? [];
+        const valides = liste.filter(i => statut.get(i.discord_id) === 'valide').length;
+        return el('section', {},
+          el('h3', { textContent: g + (CIBLES[g] ? ` ${liste.length} / ${CIBLES[g]}` : ` (${liste.length})`)
+            + (valides ? ` · ${valides} validé${valides > 1 ? 's' : ''}` : '') }),
+          el('ul', { className: 'inscrits' }, ...liste.map(i => el('li', {},
+            el('strong', { textContent: i.nom }), el('span', { textContent: ' ' + detail(i) }),
+            absent.has(i.discord_id) && el('em', { textContent: ' absence déclarée' }),
+            officier ? choisir(i) : statut.has(i.discord_id) && el('em', { textContent: ' ' + STATUTS[statut.get(i.discord_id)].toLowerCase() })))));
+      }));
+      if (!officier) return ouvrir(...entete, composition);
 
-      // Appel : celui déjà saisi, sinon pré-rempli avec les inscriptions
+      // Appel : celui déjà saisi, sinon pré-rempli (inscription Raid-Helper, absence déclarée, liste d'attente)
       const saisi = new Map(appel.map(a => [a.joueur, a]));
       const lignes = el('div', { className: 'appel' });
       // les non-inscrits Raid-Helper peuvent être retirés (effectif à l'enregistrement)
@@ -148,8 +189,10 @@
             el('input', { type: 'radio', name: 'e' + joueur, value: v, checked: v === etatInitial }), ' ' + t)),
           el('label', { className: 'min' }, el('input', { type: 'number', min: 0, value: minutes ?? '', placeholder: '?' }), ' min')));
       for (const i of inscrits) {
-        const a = saisi.get(i.discord_id);
-        ligne(i.discord_id, i.nom, detail(i), a ? a.etat : (i.classe in PREREMPLI ? PREREMPLI[i.classe] : 'present'), a?.retard_min);
+        const a = saisi.get(i.discord_id), abs = absent.has(i.discord_id), att = statut.get(i.discord_id) === 'attente';
+        const prevu = i.classe in PREREMPLI ? PREREMPLI[i.classe] : abs ? 'absent_prevenu' : att ? 'banc' : 'present';
+        ligne(i.discord_id, i.nom, [detail(i), abs && 'absence déclarée', att && 'en attente'].filter(Boolean).join(' · '),
+          a ? a.etat : prevu, a?.retard_min);
       }
       for (const a of appel) if (!inscrits.some(i => i.discord_id === a.joueur)) ligne(a.joueur, a.nom, 'non inscrit', a.etat, a.retard_min, true);
 
@@ -160,9 +203,9 @@
         nouveau.value = '';
       });
       const dernier = appel.reduce((a, b) => (a && a.modifie_le > b.modifie_le ? a : b), null);
-      const message = el('p', { className: 'vide', textContent: dernier
+      const etatAppel = el('p', { className: 'vide', textContent: dernier
         ? `Appel enregistré, dernière modification par ${dernier.modifie_par} le ${quand(dernier.modifie_le)}.`
-        : 'Appel pas encore fait : pré-rempli avec les inscriptions Raid-Helper.' });
+        : "Appel pas encore fait : pré-rempli avec les inscriptions Raid-Helper, les absences déclarées et la liste d'attente." });
 
       const enregistrer = bouton("Enregistrer l'appel", 'discord', async () => {
         const rangs = [...lignes.querySelectorAll('.ligne')].map(f => {
@@ -175,14 +218,64 @@
           .filter(r => { const a = saisi.get(r.joueur); return !a || a.etat !== r.etat || a.retard_min !== r.retard_min; });
         const presents = new Set([...lignes.querySelectorAll('.ligne')].map(f => f.dataset.joueur));
         const retires = [...saisi.keys()].filter(j => !presents.has(j));
-        if (!rangs.length && !retires.length) return message.textContent = 'Aucune modification.';
+        if (!rangs.length && !retires.length) return etatAppel.textContent = 'Aucune modification.';
         const { error } = rangs.length ? await sb.from('appel').upsert(rangs) : {};
         const { error: e2 } = retires.length ? await sb.from('appel').delete().eq('sortie_id', id).in('joueur', retires) : {};
-        if (error || e2) return message.textContent = "L'enregistrement a échoué : " + (error || e2).message;
-        sortie(id);
+        if (error || e2) return etatAppel.textContent = "L'enregistrement a échoué : " + (error || e2).message;
+        sortie(id, 'appel');
         calendrier(); // nombre d'inscrits à jour derrière la fenêtre
       });
-      ouvrir(...entete, message, lignes, el('p', {}, nouveau, ajouter), enregistrer);
+
+      // deux onglets : la composition avant la soirée, l'appel une fois commencée
+      const panneaux = {
+        composition: el('div', {}, message, composition),
+        appel: el('div', {}, etatAppel, lignes, el('p', {}, nouveau, ajouter), enregistrer),
+      };
+      onglet ??= Date.parse(s.debut) > Date.now() ? 'composition' : 'appel';
+      const onglets = el('div', { className: 'onglets', role: 'tablist' }, ...Object.keys(panneaux).map(k =>
+        el('button', { type: 'button', role: 'tab', textContent: k === 'appel' ? 'Appel' : 'Composition', ariaSelected: k === onglet,
+          onclick: e => {
+            for (const b of e.target.parentNode.children) b.ariaSelected = b === e.target;
+            for (const [n, p] of Object.entries(panneaux)) p.hidden = n !== k;
+          } })));
+      for (const [n, p] of Object.entries(panneaux)) p.hidden = n !== onglet;
+      ouvrir(...entete, onglets, panneaux.composition, panneaux.appel);
+    }
+
+    // Absences longues : chacun déclare les siennes ; les officiers voient celles de tous
+    const blocAbsences = el('section', { className: 'absences' });
+    let moi = null; // identifiant Discord du compte connecté
+
+    async function chargerAbsences() {
+      const { data, error } = await sb.from('absences').select('*').gte('au', jourParis(Date.now())).order('du');
+      if (error) return blocAbsences.replaceChildren(el('p', { textContent: 'Absences indisponibles pour le moment.' }));
+      const date = d => new Date(d + 'T12:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
+      const du = el('input', { type: 'date', min: jourParis(Date.now()), ariaLabel: 'Du' });
+      const au = el('input', { type: 'date', min: jourParis(Date.now()), ariaLabel: 'Au' });
+      const motif = el('input', { type: 'text', placeholder: 'Motif (facultatif)' });
+      const message = el('p', { className: 'vide' });
+      const declarer = bouton('Déclarer', '', async () => {
+        if (!du.value || !au.value || au.value < du.value) return message.textContent = 'Indiquez une date de début et une date de fin dans le bon ordre.';
+        const { error } = await sb.from('absences').insert({ du: du.value, au: au.value, motif: motif.value.trim() || null });
+        if (error) return message.textContent = 'La déclaration a échoué : ' + error.message;
+        chargerAbsences();
+      });
+      const supprimer = a => async () => {
+        const { error } = await sb.from('absences').delete().eq('id', a.id);
+        if (error) return message.textContent = 'La suppression a échoué : ' + error.message;
+        chargerAbsences();
+      };
+      blocAbsences.replaceChildren(
+        el('h2', { textContent: officier ? 'Absences déclarées' : 'Mes absences' }),
+        el('p', { className: 'vide', textContent: "Vacances ou pause : déclarez-les une fois, l'appel des soirées concernées vous marque absent prévenu." }),
+        data.length ? el('ul', { className: 'inscrits' }, ...data.map(a => el('li', {},
+          officier && el('strong', { textContent: a.nom + ' : ' }),
+          `du ${date(a.du)} au ${date(a.au)}`, a.motif && el('span', { textContent: ' — ' + a.motif }),
+          a.joueur === moi && el('button', { className: 'retirer', type: 'button', textContent: '×', title: 'Supprimer',
+            ariaLabel: 'Supprimer cette absence', onclick: supprimer(a) }))))
+          : el('p', { textContent: 'Aucune absence à venir.' }),
+        el('p', { className: 'declarer' }, el('label', {}, 'Du ', du), ' ', el('label', {}, 'au ', au), ' ', motif, ' ', declarer),
+        message);
     }
 
     // Statistiques d'appel (officiers), triables, exportables en CSV
@@ -194,7 +287,7 @@
     };
     const COLONNES = [['nom', 'Joueur'], ['soirees', 'Soirées'], ['presence', 'Présence %'], ['retard', 'Retard %'],
       ['retard_moyen', 'Retard moyen (min)'], ['absents_prevenus', 'Absent prévenu'], ['absents', 'Absent'], ['bancs', 'Mis au banc'],
-      ['inscrits', 'Inscrit'], ['inscrits_presents', 'Inscrit et présent'], ['inscrits_bancs', 'Inscrit et mis au banc']];
+      ['inscrits', 'Inscrit'], ['inscrits_valides', 'Inscrit et validé'], ['inscrits_presents', 'Inscrit et présent'], ['inscrits_bancs', 'Inscrit et mis au banc']];
 
     // la fenêtre et ses réglages sont créés une fois ; seul le résultat est recalculé
     // (sinon le sélecteur de date, recréé à chaque date valide, perdrait la saisie en cours)

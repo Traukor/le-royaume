@@ -30,9 +30,13 @@ Deno.serve(async (req) => {
   const { data: membre } = await utilisateur.rpc("est_membre");
   if (!membre) return json({ erreur: "réservé aux membres" }, 403);
 
+  // { forcer: true } (bouton « Actualiser », officiers seulement) ignore le délai de 5 minutes
+  const { forcer } = await req.json().catch(() => ({}));
+  const { data: officier } = forcer ? await utilisateur.rpc("est_officier") : { data: false };
+
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   const { data: derniere } = await admin.from("sorties").select("maj").order("maj", { ascending: false }).limit(1);
-  if (derniere?.[0] && Date.now() - Date.parse(derniere[0].maj) < 5 * 60_000) return json({ synchro: false });
+  if (!officier && derniere?.[0] && Date.now() - Date.parse(derniere[0].maj) < 5 * 60_000) return json({ synchro: false });
 
   const cle = Deno.env.get("RAIDHELPER_API_KEY")!;
   const depuis = Math.floor(Date.now() / 1000) - FENETRE_JOURS * 86400;

@@ -120,6 +120,68 @@ create policy retirer on public.appel for delete using (public.est_officier());
 drop policy if exists lire on public.appel_journal;
 create policy lire on public.appel_journal for select using (public.est_officier());
 
+-- ===== Lot 2 : préparer la soirée =====
+
+-- Identifiant Discord du compte connecté (pour les règles « mes lignes »).
+create or replace function public.mon_discord() returns text
+language sql stable security definer set search_path = '' as $$
+  select discord_id from public.acces where user_id = auth.uid()
+$$;
+
+-- Composition : un officier valide un inscrit ou le met en liste d'attente.
+create table if not exists public.composition (
+  sortie_id   text references public.sorties on delete cascade,
+  joueur      text,
+  statut      text not null check (statut in ('valide', 'attente')),
+  modifie_par text,
+  modifie_le  timestamptz,
+  primary key (sortie_id, joueur)
+);
+create or replace function public.signer() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  new.modifie_par := (select pseudo from public.acces where user_id = auth.uid());
+  new.modifie_le := now();
+  return new;
+end $$;
+drop trigger if exists signer on public.composition;
+create trigger signer before insert or update on public.composition
+  for each row execute function public.signer();
+
+-- Absences longues : chaque membre déclare les siennes ; joueur et nom fixés par la base.
+create table if not exists public.absences (
+  id     bigint generated always as identity primary key,
+  joueur text not null,
+  nom    text,
+  du     date not null,
+  au     date not null check (au >= du),
+  motif  text
+);
+create or replace function public.proprietaire_absence() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  select discord_id, pseudo into new.joueur, new.nom from public.acces where user_id = auth.uid();
+  return new;
+end $$;
+drop trigger if exists proprietaire_absence on public.absences;
+create trigger proprietaire_absence before insert or update on public.absences
+  for each row execute function public.proprietaire_absence();
+
+alter table public.composition enable row level security;
+alter table public.absences    enable row level security;
+
+drop policy if exists lire on public.composition;
+create policy lire on public.composition for select using (public.est_membre());
+drop policy if exists ecrire on public.composition;
+create policy ecrire on public.composition for all using (public.est_officier()) with check (public.est_officier());
+
+drop policy if exists lire on public.absences;
+create policy lire on public.absences for select using (public.est_officier() or joueur = public.mon_discord());
+drop policy if exists ecrire on public.absences;
+create policy ecrire on public.absences for all
+  using (public.est_membre() and joueur = public.mon_discord())
+  with check (public.est_membre() and joueur = public.mon_discord());
+
 -- Statistiques d'appel par joueur (lot 1 bis), depuis une date ou depuis le début (null).
 -- Exécutée avec les droits de l'appelant : les règles d'accès de appel la réservent aux officiers.
 -- Le banc n'est ni une présence ni une absence : exclu des soirées, compté à part (« mis au banc »).
@@ -128,13 +190,15 @@ drop function if exists public.stats_joueurs(timestamptz); -- colonnes de retour
 create function public.stats_joueurs(depuis timestamptz default null)
 returns table (joueur text, nom text, soirees int, presents int, retards int, retard_moyen int,
                absents_prevenus int, absents int, bancs int,
-               inscrits int, inscrits_presents int, inscrits_bancs int)
+               inscrits int, inscrits_valides int, inscrits_presents int, inscrits_bancs int)
 language sql stable set search_path = '' as $$
   with a as (select * from public.appel),
        i as (select sortie_id, discord_id as joueur, nom from public.inscriptions where classe is distinct from 'Absence'),
        l as (select coalesce(a.sortie_id, i.sortie_id) as sortie_id, coalesce(a.joueur, i.joueur) as joueur,
-                    coalesce(a.nom, i.nom) as nom, a.etat, a.retard_min, i.joueur is not null as inscrit
-             from a full join i on i.sortie_id = a.sortie_id and i.joueur = a.joueur)
+                    coalesce(a.nom, i.nom) as nom, a.etat, a.retard_min, i.joueur is not null as inscrit, c.statut
+             from a full join i on i.sortie_id = a.sortie_id and i.joueur = a.joueur
+             left join public.composition c on c.sortie_id = coalesce(a.sortie_id, i.sortie_id)
+                                           and c.joueur = coalesce(a.joueur, i.joueur))
   select l.joueur,
          (array_agg(l.nom order by s.debut desc))[1], -- nom le plus récent
          (count(*) filter (where l.etat <> 'banc'))::int,
@@ -145,6 +209,7 @@ language sql stable set search_path = '' as $$
          (count(*) filter (where l.etat = 'absent'))::int,
          (count(*) filter (where l.etat = 'banc'))::int,
          (count(*) filter (where l.inscrit))::int,
+         (count(*) filter (where l.inscrit and l.statut = 'valide'))::int,
          (count(*) filter (where l.inscrit and l.etat in ('present', 'retard')))::int,
          (count(*) filter (where l.inscrit and l.etat = 'banc'))::int
   from l join public.sorties s on s.id = l.sortie_id

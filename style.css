@@ -207,3 +207,18 @@ button.btn { background: transparent; color: var(--gold); font-size: 1rem; curso
 .stats th button { font: 700 .8rem "Cinzel", serif; color: var(--gold); background: none; border: 0; padding: 0; cursor: pointer; }
 .espace input[type=date] { color-scheme: dark; }
 .espace select { padding: 6px 8px; font: inherit; background: var(--bg); color: var(--text); border: 1px solid var(--gold-dark); border-radius: 4px; }
+
+/* lot 2 : onglets du zoom, composition, absences */
+.onglets { display: flex; justify-content: center; gap: 8px; margin: 12px 0; }
+.onglets button { padding: 6px 16px; font: 700 .85rem "Cinzel", serif; color: var(--gold); background: none; border: 1px solid var(--gold-dark); border-radius: 4px; cursor: pointer; }
+.onglets button[aria-selected="true"] { background: var(--gold); color: var(--bg); border-color: var(--gold); }
+.compo { text-align: left; }
+.compo h3 { margin: 14px 0 4px; color: var(--gold); font-size: 1rem; }
+.compo li { padding: 3px 0; }
+.compo em { color: var(--muted); }
+.compo .statut { margin-left: 8px; padding: 2px 4px; font-size: .85rem; }
+.absences { margin-top: 32px; text-align: left; }
+.absences h2 { text-align: center; }
+.absences .retirer { margin-left: 8px; width: 24px; height: 24px; padding: 0; font-size: 1rem; line-height: 1; color: var(--muted); background: none; border: 1px solid var(--gold-dark); border-radius: 50%; cursor: pointer; }
+.absences .retirer:hover { color: #e06c5a; border-color: #e06c5a; }
+.declarer label { white-space: nowrap; }
