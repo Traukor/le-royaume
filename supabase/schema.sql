@@ -201,6 +201,79 @@ create policy lire on public.cibles for select using (public.est_membre());
 drop policy if exists ecrire on public.cibles;
 create policy ecrire on public.cibles for all using (public.est_officier()) with check (public.est_officier());
 
+-- ===== Lot 3 : personnages et loots =====
+
+-- Personnages : chaque membre gère les siens ; joueur et propriétaire fixés par la base.
+create table if not exists public.personnages (
+  id           bigint generated always as identity primary key,
+  joueur       text not null,
+  proprietaire text,
+  nom          text not null,
+  classe       text,
+  spe          text,
+  principal    boolean not null default false,
+  unique (joueur, nom)
+);
+create unique index if not exists un_principal on public.personnages (joueur) where principal;
+create or replace function public.proprietaire_personnage() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  select discord_id, pseudo into new.joueur, new.proprietaire from public.acces where user_id = auth.uid();
+  return new;
+end $$;
+drop trigger if exists proprietaire_personnage on public.personnages;
+create trigger proprietaire_personnage before insert or update on public.personnages
+  for each row execute function public.proprietaire_personnage();
+
+-- Loots : saisis par les officiers. Destination joueur (avec type +1/+2/+3), désenchanté ou banque.
+create table if not exists public.loots (
+  id            bigint generated always as identity primary key,
+  sortie_id     text references public.sorties on delete set null,
+  le            timestamptz not null default now(),
+  objet         text not null,
+  boss          text,
+  destination   text not null default 'joueur' check (destination in ('joueur', 'desenchante', 'banque')),
+  personnage_id bigint references public.personnages on delete set null,
+  joueur        text,
+  nom           text,
+  personnage    text,
+  type          text check (type in ('+1', '+2', '+3')),
+  modifie_par   text,
+  modifie_le    timestamptz,
+  check (destination <> 'joueur' or joueur is not null)
+);
+-- auteur et date fixés par la base ; joueur et noms recopiés du personnage (gardés s'il est supprimé)
+create or replace function public.preparer_loot() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  new.modifie_par := (select pseudo from public.acces where user_id = auth.uid());
+  new.modifie_le := now();
+  if new.destination <> 'joueur' then
+    new.personnage_id := null; new.joueur := null; new.nom := null; new.personnage := null; new.type := null;
+  elsif new.personnage_id is not null then
+    select joueur, proprietaire, nom into new.joueur, new.nom, new.personnage from public.personnages where id = new.personnage_id;
+  end if;
+  return new;
+end $$;
+drop trigger if exists preparer_loot on public.loots;
+create trigger preparer_loot before insert or update on public.loots
+  for each row execute function public.preparer_loot();
+
+alter table public.personnages enable row level security;
+alter table public.loots       enable row level security;
+
+drop policy if exists lire on public.personnages;
+create policy lire on public.personnages for select using (public.est_membre());
+drop policy if exists ecrire on public.personnages;
+create policy ecrire on public.personnages for all
+  using (public.est_membre() and joueur = public.mon_discord())
+  with check (public.est_membre() and joueur = public.mon_discord());
+
+drop policy if exists lire on public.loots;
+create policy lire on public.loots for select using (public.est_officier() or joueur = public.mon_discord());
+drop policy if exists ecrire on public.loots;
+create policy ecrire on public.loots for all using (public.est_officier()) with check (public.est_officier());
+
 -- Statistiques d'appel par joueur (lot 1 bis), depuis une date ou depuis le début (null).
 -- Exécutée avec les droits de l'appelant : les règles d'accès de appel la réservent aux officiers.
 -- Le banc n'est ni une présence ni une absence : exclu des soirées, compté à part (« mis au banc »).
@@ -209,7 +282,8 @@ drop function if exists public.stats_joueurs(timestamptz); -- colonnes de retour
 create function public.stats_joueurs(depuis timestamptz default null)
 returns table (joueur text, nom text, soirees int, presents int, retards int, retard_moyen int,
                absents_prevenus int, absents int, bancs int,
-               inscrits int, inscrits_valides int, inscrits_presents int, inscrits_bancs int)
+               inscrits int, inscrits_valides int, inscrits_presents int, inscrits_bancs int,
+               loots int, dernier_loot text, dernier_loot_le timestamptz)
 language sql stable set search_path = '' as $$
   with a as (select * from public.appel),
        i as (select sortie_id, discord_id as joueur, nom from public.inscriptions where classe is distinct from 'Absence'),
@@ -230,7 +304,11 @@ language sql stable set search_path = '' as $$
          (count(*) filter (where l.inscrit))::int,
          (count(*) filter (where l.inscrit and l.statut = 'valide'))::int,
          (count(*) filter (where l.inscrit and l.etat in ('present', 'retard')))::int,
-         (count(*) filter (where l.inscrit and l.etat = 'banc'))::int
+         (count(*) filter (where l.inscrit and l.etat = 'banc'))::int,
+         -- loots reçus sur la période ; dernier loot depuis toujours
+         (select count(*)::int from public.loots o where o.joueur = l.joueur and (depuis is null or o.le >= depuis)),
+         (select o.objet from public.loots o where o.joueur = l.joueur order by o.le desc limit 1),
+         (select max(o.le) from public.loots o where o.joueur = l.joueur)
   from l join public.sorties s on s.id = l.sortie_id
   where (depuis is null or s.debut >= depuis)
     and exists (select 1 from public.appel x where x.sortie_id = s.id)
