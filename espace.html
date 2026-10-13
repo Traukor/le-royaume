@@ -195,38 +195,54 @@
     const COLONNES = [['nom', 'Joueur'], ['soirees', 'Soirées'], ['presence', 'Présence %'], ['retard', 'Retard %'],
       ['retard_moyen', 'Retard moyen (min)'], ['absents_prevenus', 'Absent prévenu'], ['absents', 'Absent'], ['bancs', 'Mis au banc']];
 
-    async function stats(choix = '3s', date = '', tri = 'bancs', sens = -1) {
-      const debut = debutDe(choix, date); // '' (date effacée) = depuis le début
-      const { data, error } = await sb.rpc('stats_joueurs', { depuis: debut ? new Date(debut + 'T00:00').toISOString() : null });
-      if (error) return ouvrir(fermer(), el('h2', { textContent: 'Statistiques' }), el('p', { textContent: 'Statistiques indisponibles : ' + error.message }));
-      const lignes = data.map(r => ({ ...r,
-        presence: r.soirees ? Math.round(100 * r.presents / r.soirees) : null,
-        retard: r.presents ? Math.round(100 * r.retards / r.presents) : null }));
-      const comparer = (a, b) => typeof a === 'string' ? a.localeCompare(b, 'fr') : a - b;
-      lignes.sort((a, b) => a[tri] == null ? 1 : b[tri] == null ? -1 : sens * comparer(a[tri], b[tri])); // vides en dernier
-
-      const liste = el('select', { ariaLabel: 'Période', onchange: () => stats(liste.value, debut, tri, sens) },
-        ...Object.entries(PERIODES).map(([v, t]) => el('option', { value: v, textContent: t, selected: v === choix })));
-      // sélecteur de date seulement pour « une date à choisir », pré-rempli avec le début affiché
-      const champ = choix === 'date' && el('input', { type: 'date', value: debut, max: jourParis(Date.now()), ariaLabel: 'Date de début',
-        onchange: () => stats('date', champ.value, tri, sens) });
-      const exporter = () => {
-        const cellule = v => `"${String(v ?? '').replaceAll('"', '""')}"`;
-        const texte = [COLONNES.map(c => c[1]), ...lignes.map(r => COLONNES.map(([k]) => r[k]))]
-          .map(l => l.map(cellule).join(';')).join('\r\n'); // « ; » et BOM : ouverture directe dans Excel en français
-        el('a', { href: URL.createObjectURL(new Blob(['﻿' + texte], { type: 'text/csv' })),
-          download: `statistiques-${debut ? 'depuis-' + debut : 'depuis-le-debut'}.csv` }).click();
+    // la fenêtre et ses réglages sont créés une fois ; seul le résultat est recalculé
+    // (sinon le sélecteur de date, recréé à chaque date valide, perdrait la saisie en cours)
+    function stats() {
+      let tri = 'bancs', sens = -1, debut, demande = 0;
+      const liste = el('select', { ariaLabel: 'Période' },
+        ...Object.entries(PERIODES).map(([v, t]) => el('option', { value: v, textContent: t })));
+      const champ = el('input', { type: 'date', max: jourParis(Date.now()), ariaLabel: 'Date de début', hidden: true });
+      const resultat = el('div');
+      liste.onchange = () => {
+        champ.hidden = liste.value !== 'date';
+        if (!champ.value) champ.value = debut; // pré-rempli avec le début affiché
+        charger();
       };
+      champ.onchange = () => charger();
+
+      async function charger() {
+        debut = debutDe(liste.value, champ.value); // '' (date effacée) = depuis le début
+        const moi = ++demande;
+        const { data, error } = await sb.rpc('stats_joueurs', { depuis: debut ? new Date(debut + 'T00:00').toISOString() : null });
+        if (moi !== demande) return; // une réponse plus récente est attendue (date tapée chiffre par chiffre)
+        if (error) return resultat.replaceChildren(el('p', { textContent: 'Statistiques indisponibles : ' + error.message }));
+        const lignes = data.map(r => ({ ...r,
+          presence: r.soirees ? Math.round(100 * r.presents / r.soirees) : null,
+          retard: r.presents ? Math.round(100 * r.retards / r.presents) : null }));
+        const comparer = (a, b) => typeof a === 'string' ? a.localeCompare(b, 'fr') : a - b;
+        lignes.sort((a, b) => a[tri] == null ? 1 : b[tri] == null ? -1 : sens * comparer(a[tri], b[tri])); // vides en dernier
+
+        const exporter = () => {
+          const cellule = v => `"${String(v ?? '').replaceAll('"', '""')}"`;
+          const texte = [COLONNES.map(c => c[1]), ...lignes.map(r => COLONNES.map(([k]) => r[k]))]
+            .map(l => l.map(cellule).join(';')).join('\r\n'); // « ; » et BOM : ouverture directe dans Excel en français
+          el('a', { href: URL.createObjectURL(new Blob(['\ufeff' + texte], { type: 'text/csv' })),
+            download: `statistiques-${debut ? 'depuis-' + debut : 'depuis-le-debut'}.csv` }).click();
+        };
+        const trier = k => () => { sens = k === tri ? -sens : k === 'nom' ? 1 : -1; tri = k; charger(); };
+        resultat.replaceChildren(...(lignes.length ? [
+          el('div', { className: 'stats' }, el('table', {},
+            el('thead', {}, el('tr', {}, ...COLONNES.map(([k, t]) => el('th', {}, el('button', {
+              textContent: t + (k === tri ? (sens > 0 ? ' ▲' : ' ▼') : ''), onclick: trier(k) }))))),
+            el('tbody', {}, ...lignes.map(r => el('tr', {}, ...COLONNES.map(([k]) => el('td', { textContent: r[k] ?? '–' }))))))),
+          bouton('Exporter en CSV', '', exporter)] : [el('p', { textContent: 'Aucun appel sur cette période.' })]));
+      }
+
       ouvrir(fermer(), el('h2', { textContent: 'Statistiques' }),
-        el('p', { className: 'periode' }, 'Depuis le ', liste, champ && ' ', champ),
+        el('p', { className: 'periode' }, 'Depuis le ', liste, ' ', champ),
         el('p', { className: 'vide', textContent: 'Présence : Présent ou Retard sur les soirées appelées, banc exclu. Retard : retards sur les soirées jouées.' }),
-        lignes.length ? el('div', { className: 'stats' }, el('table', {},
-          el('thead', {}, el('tr', {}, ...COLONNES.map(([k, t]) => el('th', {}, el('button', {
-            textContent: t + (k === tri ? (sens > 0 ? ' ▲' : ' ▼') : ''),
-            onclick: () => stats(choix, debut, k, k === tri ? -sens : k === 'nom' ? 1 : -1) }))))),
-          el('tbody', {}, ...lignes.map(r => el('tr', {}, ...COLONNES.map(([k]) => el('td', { textContent: r[k] ?? '–' })))))))
-          : el('p', { textContent: 'Aucun appel sur cette période.' }),
-        lignes.length > 0 && bouton('Exporter en CSV', '', exporter));
+        resultat);
+      charger();
     }
 
     // « zoom » sur une sortie : fenêtre native par-dessus le calendrier, fermée uniquement par la croix
