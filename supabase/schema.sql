@@ -105,20 +105,21 @@ alter table public.appel         enable row level security;
 alter table public.appel_journal enable row level security;
 
 -- acces : aucune règle, seul le serveur (clé service) y touche.
+-- (select …) autour des fonctions de droits : évaluées une fois par requête et non pour chaque ligne.
 drop policy if exists lire on public.sorties;
-create policy lire on public.sorties for select using (public.est_membre());
+create policy lire on public.sorties for select using ((select public.est_membre()));
 drop policy if exists lire on public.inscriptions;
-create policy lire on public.inscriptions for select using (public.est_membre());
+create policy lire on public.inscriptions for select using ((select public.est_membre()));
 drop policy if exists lire on public.appel;
-create policy lire on public.appel for select using (public.est_officier());
+create policy lire on public.appel for select using ((select public.est_officier()));
 drop policy if exists saisir on public.appel;
-create policy saisir on public.appel for insert with check (public.est_officier());
+create policy saisir on public.appel for insert with check ((select public.est_officier()));
 drop policy if exists corriger on public.appel;
-create policy corriger on public.appel for update using (public.est_officier());
+create policy corriger on public.appel for update using ((select public.est_officier()));
 drop policy if exists retirer on public.appel;
-create policy retirer on public.appel for delete using (public.est_officier());
+create policy retirer on public.appel for delete using ((select public.est_officier()));
 drop policy if exists lire on public.appel_journal;
-create policy lire on public.appel_journal for select using (public.est_officier());
+create policy lire on public.appel_journal for select using ((select public.est_officier()));
 
 -- ===== Lot 2 : préparer la soirée =====
 
@@ -171,16 +172,16 @@ alter table public.composition enable row level security;
 alter table public.absences    enable row level security;
 
 drop policy if exists lire on public.composition;
-create policy lire on public.composition for select using (public.est_membre());
+create policy lire on public.composition for select using ((select public.est_membre()));
 drop policy if exists ecrire on public.composition;
-create policy ecrire on public.composition for all using (public.est_officier()) with check (public.est_officier());
+create policy ecrire on public.composition for all using ((select public.est_officier())) with check ((select public.est_officier()));
 
 drop policy if exists lire on public.absences;
-create policy lire on public.absences for select using (public.est_officier() or joueur = public.mon_discord());
+create policy lire on public.absences for select using ((select public.est_officier()) or joueur = (select public.mon_discord()));
 drop policy if exists ecrire on public.absences;
 create policy ecrire on public.absences for all
-  using (public.est_membre() and joueur = public.mon_discord())
-  with check (public.est_membre() and joueur = public.mon_discord());
+  using ((select public.est_membre()) and joueur = (select public.mon_discord()))
+  with check ((select public.est_membre()) and joueur = (select public.mon_discord()));
 
 -- Joueurs absents un jour donné, pour tous les membres (sans le motif, qui reste privé).
 create or replace function public.absents(jour date) returns setof text
@@ -197,9 +198,9 @@ create table if not exists public.cibles (
 );
 alter table public.cibles enable row level security;
 drop policy if exists lire on public.cibles;
-create policy lire on public.cibles for select using (public.est_membre());
+create policy lire on public.cibles for select using ((select public.est_membre()));
 drop policy if exists ecrire on public.cibles;
-create policy ecrire on public.cibles for all using (public.est_officier()) with check (public.est_officier());
+create policy ecrire on public.cibles for all using ((select public.est_officier())) with check ((select public.est_officier()));
 
 -- ===== Lot 3 : personnages et loots =====
 
@@ -246,6 +247,8 @@ create table if not exists public.loots (
 create or replace function public.preparer_loot() returns trigger
 language plpgsql security definer set search_path = '' as $$
 begin
+  -- mise à null de personnage_id par la base (personnage ou sortie supprimés) : rien d'autre ne change
+  if pg_trigger_depth() > 1 then return new; end if;
   new.modifie_par := (select pseudo from public.acces where user_id = auth.uid());
   new.modifie_le := now();
   if new.destination <> 'joueur' then
@@ -263,16 +266,16 @@ alter table public.personnages enable row level security;
 alter table public.loots       enable row level security;
 
 drop policy if exists lire on public.personnages;
-create policy lire on public.personnages for select using (public.est_membre());
+create policy lire on public.personnages for select using ((select public.est_membre()));
 drop policy if exists ecrire on public.personnages;
 create policy ecrire on public.personnages for all
-  using (public.est_membre() and joueur = public.mon_discord())
-  with check (public.est_membre() and joueur = public.mon_discord());
+  using ((select public.est_membre()) and joueur = (select public.mon_discord()))
+  with check ((select public.est_membre()) and joueur = (select public.mon_discord()));
 
 drop policy if exists lire on public.loots;
-create policy lire on public.loots for select using (public.est_officier() or joueur = public.mon_discord());
+create policy lire on public.loots for select using ((select public.est_officier()) or joueur = (select public.mon_discord()));
 drop policy if exists ecrire on public.loots;
-create policy ecrire on public.loots for all using (public.est_officier()) with check (public.est_officier());
+create policy ecrire on public.loots for all using ((select public.est_officier())) with check ((select public.est_officier()));
 
 -- Statistiques d'appel par joueur (lot 1 bis), depuis une date ou depuis le début (null).
 -- Exécutée avec les droits de l'appelant : les règles d'accès de appel la réservent aux officiers.

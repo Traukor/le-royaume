@@ -61,6 +61,7 @@
 
     async function verifier() {
       contenu.replaceChildren();
+      if (zoom.open) zoom.close(); // pas de fenêtre d'officier laissée ouverte après déconnexion
       const { data: { session } } = await sb.auth.getSession();
       if (!session) return afficher('Cet espace est réservé aux membres de la guilde. Connectez-vous avec votre compte Discord.',
         bouton('Se connecter avec Discord', 'discord', connexion));
@@ -75,26 +76,29 @@
       chargerPersos();
       afficher(`Bienvenue ${data.pseudo}${officier ? ', accès officier confirmé' : ''}.`, bouton('Se déconnecter', '', deconnexion));
 
-      contenu.replaceChildren(el('p', { textContent: 'Récupération des sorties Raid-Helper…' }));
+      calendrier(); // tout de suite depuis la base ; redessiné si la synchronisation apporte du nouveau
       const synchro = await sb.functions.invoke('synchro-raidhelper');
       // le message du serveur (ex. « Raid-Helper a répondu 401 ») aide à comprendre une panne
       const detail = synchro.error && await synchro.error.context?.json?.().then(d => d.erreur, () => null);
-      calendrier(synchro.error ? `Synchronisation Raid-Helper impossible${detail ? ' (' + detail + ')' : ''} : les sorties affichées peuvent dater un peu.` : null);
+      if (synchro.error) calendrier(`Synchronisation Raid-Helper impossible${detail ? ' (' + detail + ')' : ''} : les sorties affichées peuvent dater un peu.`);
+      else if (synchro.data?.synchro) calendrier();
     }
 
     // Calendrier mensuel (semaines du lundi au dimanche, heure de Paris)
     const jourParis = d => new Date(d).toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' }); // AAAA-MM-JJ
     const heure = d => new Date(d).toLocaleTimeString('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' });
     let mois = new Date(jourParis(Date.now()).slice(0, 7) + '-01T12:00'); // midi : à l'abri des changements d'heure
-    let avertissementSynchro = null;
+    let avertissementSynchro = null, demandeCal = 0;
 
     async function calendrier(avertissement = avertissementSynchro) {
       avertissementSynchro = avertissement;
+      const n = ++demandeCal; // mois changés vite : seule la dernière réponse s'affiche
       const debut = new Date(mois); debut.setDate(1 - (mois.getDay() + 6) % 7); // lundi de la 1re semaine
       const jours = Array.from({ length: 42 }, (_, i) => { const d = new Date(debut); d.setDate(debut.getDate() + i); return d; });
       const { data, error } = await sb.from('sorties').select('id, titre, debut, inscriptions(count)')
         .gte('debut', new Date(debut.getTime() - 86400e3).toISOString())
         .lt('debut', new Date(jours[41].getTime() + 86400e3).toISOString()).order('debut');
+      if (n !== demandeCal) return;
       if (error) return contenu.replaceChildren(el('p', { textContent: 'Calendrier indisponible pour le moment.' }));
 
       const parJour = Map.groupBy(data, s => jourParis(s.debut));
@@ -147,19 +151,19 @@
       : `${l.personnage ? l.personnage + ' (' + l.nom + ')' : l.nom} ${l.type ?? ''}`.trim();
 
     async function sortie(id, onglet) {
-      const [{ data: s }, { data: inscrits }, { data: appel }, { data: compo }, { data: reglage }] = await Promise.all([
+      const rien = { data: [] };
+      const [{ data: s }, { data: inscrits }, { data: appel }, { data: compo }, { data: reglage },
+             { data: loots }, { data: persos }, { data: stats3m }] = await Promise.all([
         sb.from('sorties').select('*').eq('id', id).single(),
         sb.from('inscriptions').select('*').eq('sortie_id', id).order('position'),
-        officier ? sb.from('appel').select('*').eq('sortie_id', id) : { data: [] },
+        officier ? sb.from('appel').select('*').eq('sortie_id', id) : rien,
         sb.from('composition').select('*').eq('sortie_id', id),
         sb.from('cibles').select('*').eq('sortie_id', id).maybeSingle(),
+        officier ? sb.from('loots').select('*').eq('sortie_id', id).order('le') : rien,
+        officier ? sb.from('personnages').select('*').order('proprietaire').order('nom') : rien,
+        officier ? sb.rpc('stats_joueurs', { depuis: debutDe('3m') + 'T00:00:00' }) : rien,
       ]);
       if (!s) return;
-      const [{ data: loots }, { data: persos }, { data: stats3m }] = officier ? await Promise.all([
-        sb.from('loots').select('*').eq('sortie_id', id).order('le'),
-        sb.from('personnages').select('*').order('proprietaire').order('nom'),
-        sb.rpc('stats_joueurs', { depuis: debutDe('3m') + 'T00:00:00' }),
-      ]) : [{}, {}, {}];
       const jour = jourParis(s.debut);
       const { data: absents } = await sb.rpc('absents', { jour }); // absences déclarées couvrant la soirée
       const entete = [fermer(), el('h2',{ textContent: s.titre || 'Sortie' }),
@@ -204,35 +208,44 @@
 
       // Appel : celui déjà saisi, sinon pré-rempli (inscription Raid-Helper, absence déclarée, liste d'attente)
       const saisi = new Map(appel.map(a => [a.joueur, a]));
-      const lignes = el('div', { className: 'appel' });
+      // fenêtre reconstruite (statut, cible, loot) pendant une saisie : les lignes non enregistrées sont reprises
+      const reprise = brouillon?.id === id ? brouillon.lignes : null;
+      const modifie = () => brouillon = { id, lignes };
+      const lignes = reprise ?? el('div', { className: 'appel', onchange: modifie });
       // les non-inscrits Raid-Helper peuvent être retirés (effectif à l'enregistrement)
       const ligne = (joueur, nom, info, etatInitial, minutes, retirable) => lignes.append(
         el('fieldset', { className: 'ligne', dataset: { joueur, nom } },
           el('legend', {}, el('strong', { textContent: nom }), info && el('span', { textContent: ' ' + info }),
             retirable && el('button', { className: 'retirer', type: 'button', textContent: '×', title: "Retirer de l'appel",
-              ariaLabel: 'Retirer ' + nom + " de l'appel", onclick: e => e.target.closest('.ligne').remove() })),
+              ariaLabel: 'Retirer ' + nom + " de l'appel", onclick: e => { e.target.closest('.ligne').remove(); modifie(); } })),
           ...Object.entries(ETATS).map(([v, t]) => el('label', {},
             el('input', { type: 'radio', name: 'e' + joueur, value: v, checked: v === etatInitial }), ' ' + t)),
           el('label', { className: 'min' }, el('input', { type: 'number', min: 0, value: minutes ?? '', placeholder: '?' }), ' min')));
       // absence déclarée : hors de la liste, enregistré « absent prévenu » avec l'appel
       const declares = inscrits.filter(i => absent.has(i.discord_id));
-      for (const i of inscrits) {
-        if (absent.has(i.discord_id)) continue;
-        const a = saisi.get(i.discord_id), att = statut.get(i.discord_id) === 'attente';
-        const prevu = i.classe in PREREMPLI ? PREREMPLI[i.classe] : att ? 'banc' : 'present';
-        ligne(i.discord_id, i.nom, [detail(i), att && 'en attente'].filter(Boolean).join(' · '), a ? a.etat : prevu, a?.retard_min);
+      if (!reprise) {
+        for (const i of inscrits) {
+          if (absent.has(i.discord_id)) continue;
+          const a = saisi.get(i.discord_id), att = statut.get(i.discord_id) === 'attente';
+          const prevu = i.classe in PREREMPLI ? PREREMPLI[i.classe] : att ? 'banc' : 'present';
+          ligne(i.discord_id, i.nom, [detail(i), att && 'en attente'].filter(Boolean).join(' · '), a ? a.etat : prevu, a?.retard_min);
+        }
+        for (const a of appel) if (!inscrits.some(i => i.discord_id === a.joueur)) ligne(a.joueur, a.nom, 'non inscrit', a.etat, a.retard_min, true);
       }
-      for (const a of appel) if (!inscrits.some(i => i.discord_id === a.joueur)) ligne(a.joueur, a.nom, 'non inscrit', a.etat, a.retard_min, true);
 
       const nouveau = el('input', { type: 'text', placeholder: 'Joueur non inscrit' });
       const ajouter = bouton('Ajouter', '', () => {
-        const nom = nouveau.value.trim();
-        if (nom) ligne('nom:' + nom.toLowerCase(), nom, 'non inscrit', 'present', null, true);
+        const nom = nouveau.value.trim(), joueur = 'nom:' + nom.toLowerCase();
+        // un même joueur deux fois ferait échouer tout l'enregistrement
+        if (nom && ![...lignes.querySelectorAll('.ligne')].some(f => f.dataset.joueur === joueur)) {
+          ligne(joueur, nom, 'non inscrit', 'present', null, true);
+          modifie();
+        }
         nouveau.value = '';
       });
       const dernier = appel.reduce((a, b) => (a && a.modifie_le > b.modifie_le ? a : b), null);
-      const etatAppel = el('p', { className: 'vide', textContent: dernier
-        ? `Appel enregistré, dernière modification par ${dernier.modifie_par} le ${quand(dernier.modifie_le)}.`
+      const etatAppel = el('p', { className: 'vide', textContent: reprise ? 'Appel modifié, pas encore enregistré.' : dernier
+        ?`Appel enregistré, dernière modification par ${dernier.modifie_par} le ${quand(dernier.modifie_le)}.`
         : "Appel pas encore fait : pré-rempli avec les inscriptions Raid-Helper et la liste d'attente." });
 
       const enregistrer = bouton("Enregistrer l'appel", 'discord', async () => {
@@ -251,8 +264,8 @@
         const { error } = rangs.length ? await sb.from('appel').upsert(rangs) : {};
         const { error: e2 } = retires.length ? await sb.from('appel').delete().eq('sortie_id', id).in('joueur', retires) : {};
         if (error || e2) return etatAppel.textContent = "L'enregistrement a échoué : " + (error || e2).message;
+        brouillon = null;
         sortie(id, 'appel');
-        calendrier(); // nombre d'inscrits à jour derrière la fenêtre
       });
 
       // Loots : saisie rapide, avec l'aide à la décision (présence, loots et dernier loot des présents sur 3 mois)
@@ -491,7 +504,8 @@
     // « zoom » sur une sortie : fenêtre native par-dessus le calendrier, fermée uniquement par la croix
     // (ni Échap ni clic à côté : un appel en cours de saisie ne se perd pas par mégarde)
     const zoom = document.getElementById('zoom');
-    const fermer = () => el('button', { className: 'fermer', textContent: '×', ariaLabel: 'Fermer', onclick: () => zoom.close() });
+    const fermer = () => el('button', { className: 'fermer', textContent: '×', ariaLabel: 'Fermer', onclick: () => { brouillon = null; zoom.close(); } });
+    let brouillon = null; // appel modifié et pas encore enregistré : { id de la sortie, lignes }
     const ouvrir = (...enfants) => {
       zoom.replaceChildren(el('div', { className: 'zoom-in' }, ...enfants));
       if (!zoom.open) zoom.showModal();

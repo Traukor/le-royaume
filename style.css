@@ -194,12 +194,13 @@ button.btn { background: transparent; color: var(--gold); font-size: 1rem; curso
 .ligne .min input { width: 4.5em; }
 .ligne:not(:has(input[value=retard]:checked)) .min { display: none; }
 .espace input[type=text], .espace input[type=number], .espace input[type=date] { padding: 6px 8px; font: inherit; background: var(--bg); color: var(--text); border: 1px solid var(--gold-dark); border-radius: 4px; }
-.ligne .retirer { margin-left: 8px; width: 24px; height: 24px; padding: 0; font-size: 1rem; line-height: 1; color: var(--muted); background: none; border: 1px solid var(--gold-dark); border-radius: 50%; cursor: pointer; vertical-align: middle; }
-.ligne .retirer:hover { color: #e06c5a; border-color: #e06c5a; }
+.retirer { margin-left: 8px; width: 24px; height: 24px; padding: 0; font-size: 1rem; line-height: 1; color: var(--muted); background: none; border: 1px solid var(--gold-dark); border-radius: 50%; cursor: pointer; vertical-align: middle; }
+.retirer:hover { color: #e06c5a; border-color: #e06c5a; }
 
 /* statistiques d'appel */
 .stats { overflow-x: auto; margin-bottom: 12px; }
-.zoom:has(.stats) { width: min(1060px, calc(100% - 32px)); }
+/* stats et historique ; dans une sortie, seulement sur l'onglet Loots (règle plus bas) */
+.zoom:has(.stats):not(:has(.onglets)) { width: min(1060px, calc(100% - 32px)); }
 .stats table { width: 100%; border-collapse: collapse; font-size: .9rem; }
 .stats th, .stats td { padding: 6px 8px; border-bottom: 1px solid rgba(138, 109, 29, .35); text-align: right; white-space: nowrap; }
 .stats th:first-child, .stats td:first-child { text-align: left; }
@@ -221,10 +222,7 @@ button.btn { background: transparent; color: var(--gold); font-size: 1rem; curso
 .compo em { color: var(--muted); }
 .compo .statut { margin-left: 8px; padding: 2px 4px; font-size: .85rem; }
 .absences { margin-top: 32px; padding: 0; text-align: left; }
-.absences h2 { font-size: 1.5rem; }
-.absences h2 { text-align: center; }
-.absences .retirer { margin-left: 8px; width: 24px; height: 24px; padding: 0; font-size: 1rem; line-height: 1; color: var(--muted); background: none; border: 1px solid var(--gold-dark); border-radius: 50%; cursor: pointer; }
-.absences .retirer:hover { color: #e06c5a; border-color: #e06c5a; }
+.absences h2 { font-size: 1.5rem; text-align: center; }
 .declarer label { white-space: nowrap; }
 .compo .cible { width: 3.5em; padding: 1px 4px; font-size: .9rem; }
 
@@ -233,7 +231,6 @@ button.btn { background: transparent; color: var(--gold); font-size: 1rem; curso
 .loots { text-align: left; }
 .loots h3 { margin: 16px 0 6px; color: var(--gold); font-size: 1rem; }
 .loots .saisie { display: flex; flex-wrap: wrap; gap: 8px; }
-.loots .retirer { margin-left: 8px; width: 24px; height: 24px; padding: 0; font-size: 1rem; line-height: 1; color: var(--muted); background: none; border: 1px solid var(--gold-dark); border-radius: 50%; cursor: pointer; }
 .lien { margin-left: 8px; padding: 0; font: inherit; font-size: .85rem; color: var(--gold); background: none; border: 0; text-decoration: underline; cursor: pointer; }
 .espace input[type=search] { width: min(100%, 360px); padding: 6px 8px; font: inherit; background: var(--bg); color: var(--text); border: 1px solid var(--gold-dark); border-radius: 4px; }
 .zoom:has(.loots:not([hidden])) { width: min(1060px, calc(100% - 32px)); }
