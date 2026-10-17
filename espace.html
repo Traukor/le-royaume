@@ -69,7 +69,7 @@
       afficher('Vérification de votre rôle sur le Discord de la guilde…');
       const { data, error } = await sb.functions.invoke('verifier-role');
       if (error) return afficher('La vérification a échoué. Réessayez plus tard.', bouton('Se déconnecter', '', deconnexion));
-      if (!data.membre) return afficher("Ce compte Discord n'est pas sur le serveur de la guilde.", bouton('Se déconnecter', '', deconnexion));
+      if (!data.membre) return afficher("Ce compte Discord n'a pas de rôle de la guilde (membre ou postulant) sur le serveur.", bouton('Se déconnecter', '', deconnexion));
       officier = data.autorise;
       moi = session.user.user_metadata.provider_id ?? session.user.user_metadata.sub;
       chargerAbsences();

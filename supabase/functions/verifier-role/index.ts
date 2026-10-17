@@ -5,7 +5,8 @@
 // Secrets à définir dans Supabase (Edge Functions > Secrets) :
 //   DISCORD_BOT_TOKEN  le jeton du bot de l'application Discord
 //   DISCORD_GUILD_ID   l'identifiant du serveur Discord de la guilde
-//   DISCORD_ROLE_IDS   les identifiants des rôles autorisés, séparés par des virgules
+//   DISCORD_ROLE_IDS   les identifiants des rôles officiers (accès officier), séparés par des virgules
+//   DISCORD_MEMBRE_ROLE_IDS  les identifiants des rôles membres (accès membre : membres, postulants…), séparés par des virgules
 // Le résultat est aussi inscrit dans la table acces, sur laquelle reposent les droits de la base (supabase/schema.sql).
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -41,10 +42,13 @@ Deno.serve(async (req) => {
   if (!r.ok && r.status !== 404) return json({ erreur: `Discord a répondu ${r.status}` }, 502);
 
   const membre = r.ok ? await r.json() : null;
-  const autorises = (Deno.env.get("DISCORD_ROLE_IDS") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const roles = (secret: string) => (Deno.env.get(secret) ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const aUnRole = (ids: string[]) => !!membre?.roles.some((id: string) => ids.includes(id));
+  const autorise = aUnRole(roles("DISCORD_ROLE_IDS"));
   const resultat = {
-    autorise: !!membre?.roles.some((id: string) => autorises.includes(id)),
-    membre: !!membre,
+    autorise,
+    // être sur le serveur ne suffit pas (invitation publique) : il faut un rôle de la guilde
+    membre: autorise || aUnRole(roles("DISCORD_MEMBRE_ROLE_IDS")),
     pseudo: membre ? membre.nick ?? membre.user.global_name ?? membre.user.username : null,
   };
 
