@@ -97,7 +97,8 @@
       const jours = Array.from({ length: 42 }, (_, i) => { const d = new Date(debut); d.setDate(debut.getDate() + i); return d; });
       const { data, error } = await sb.from('sorties').select('id, titre, debut, inscriptions(count)')
         .gte('debut', new Date(debut.getTime() - 86400e3).toISOString())
-        .lt('debut', new Date(jours[41].getTime() + 86400e3).toISOString()).order('debut');
+        .lt('debut', new Date(jours[41].getTime() + 86400e3).toISOString()).order('debut')
+        .or('classe.is.null,classe.neq.Absence', { referencedTable: 'inscriptions' }); // inscrits hors « Absence »
       if (n !== demandeCal) return;
       if (error) return contenu.replaceChildren(el('p', { textContent: 'Calendrier indisponible pour le moment.' }));
 
@@ -467,9 +468,9 @@
 
       async function charger() {
         debut = debutDe(liste.value, champ.value); // '' (date effacée) = depuis le début
-        const moi = ++demande;
+        const n = ++demande;
         const { data, error } = await sb.rpc('stats_joueurs', { depuis: debut ? new Date(debut + 'T00:00').toISOString() : null });
-        if (moi !== demande) return; // une réponse plus récente est attendue (date tapée chiffre par chiffre)
+        if (n !== demande) return; // une réponse plus récente est attendue (date tapée chiffre par chiffre)
         if (error) return resultat.replaceChildren(el('p', { textContent: 'Statistiques indisponibles : ' + error.message }));
         const lignes = data.map(r => ({ ...r,
           presence: r.soirees ? Math.round(100 * r.presents / r.soirees) : null,
