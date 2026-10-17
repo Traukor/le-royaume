@@ -72,6 +72,12 @@ language sql stable security definer set search_path = '' as $$
   select coalesce((select officier from public.acces where user_id = auth.uid() and maj > now() - interval '1 day'), false)
 $$;
 
+-- Identifiant Discord du compte connecté (pour les règles « mes lignes »).
+create or replace function public.mon_discord() returns text
+language sql stable security definer set search_path = '' as $$
+  select discord_id from public.acces where user_id = auth.uid()
+$$;
+
 -- L'auteur d'une saisie est fixé par la base (impossible à falsifier), puis la saisie est journalisée.
 create or replace function public.tracer_appel() returns trigger
 language plpgsql security definer set search_path = '' as $$
@@ -118,7 +124,9 @@ create policy lire on public.sorties for select using ((select public.est_membre
 drop policy if exists lire on public.inscriptions;
 create policy lire on public.inscriptions for select using ((select public.est_membre()));
 drop policy if exists lire on public.appel;
-create policy lire on public.appel for select using ((select public.est_officier()));
+-- lot 4 : chaque membre lit aussi ses propres lignes d'appel (« Mon suivi »)
+create policy lire on public.appel for select
+  using ((select public.est_officier()) or ((select public.est_membre()) and joueur = (select public.mon_discord())));
 drop policy if exists saisir on public.appel;
 create policy saisir on public.appel for insert with check ((select public.est_officier()));
 drop policy if exists corriger on public.appel;
@@ -129,12 +137,6 @@ drop policy if exists lire on public.appel_journal;
 create policy lire on public.appel_journal for select using ((select public.est_officier()));
 
 -- ===== Lot 2 : préparer la soirée =====
-
--- Identifiant Discord du compte connecté (pour les règles « mes lignes »).
-create or replace function public.mon_discord() returns text
-language sql stable security definer set search_path = '' as $$
-  select discord_id from public.acces where user_id = auth.uid()
-$$;
 
 -- Composition : un officier valide un inscrit ou le met en liste d'attente.
 create table if not exists public.composition (
@@ -285,7 +287,8 @@ drop policy if exists ecrire on public.loots;
 create policy ecrire on public.loots for all using ((select public.est_officier())) with check ((select public.est_officier()));
 
 -- Statistiques d'appel par joueur (lot 1 bis), depuis une date ou depuis le début (null).
--- Exécutée avec les droits de l'appelant : les règles d'accès de appel la réservent aux officiers.
+-- Exécutée avec les droits de l'appelant : un officier voit tout ; un membre ne lit que ses lignes d'appel,
+-- donc seuls ses chiffres sont justes (la page filtre sur son identifiant).
 -- Le banc n'est ni une présence ni une absence : exclu des soirées, compté à part (« mis au banc »).
 -- Inscrit = inscription Raid-Helper autre que « Absence ». Seules comptent les sorties dont l'appel a été fait.
 drop function if exists public.stats_joueurs(timestamptz); -- colonnes de retour modifiées

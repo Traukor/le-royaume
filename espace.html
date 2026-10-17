@@ -119,7 +119,8 @@
       contenu.replaceChildren(
         ...(avertissement ? [el('p', { className: 'vide', textContent: avertissement })] : []),
         interfaces(),
-        el('p', { className: 'outils' }, bouton(officier ? 'Loots' : 'Mes loots', '', historique), officier && bouton('Actualiser', '', actualiser)),
+        el('p', { className: 'outils' }, !officier && bouton('Mon suivi', '', suivi),
+          bouton(officier ? 'Loots' : 'Mes loots', '', historique), officier && bouton('Actualiser', '', actualiser)),
         el('div', { className: 'cal-tete' },
           el('button', { className: 'nav-mois', textContent: '‹', ariaLabel: 'Mois précédent', onclick: changer(-1) }),
           el('h2', { textContent: mois.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) }),
@@ -382,6 +383,29 @@
         data.length ? el('p', {}, filtre) : el('p', { textContent: 'Aucun loot pour le moment.' }),
         data.length > 0 && el('div', { className: 'stats' }, el('table', {},
           el('thead', {}, el('tr', {}, ...['Date', 'Objet', 'Boss', 'Pour', 'Sortie', 'Saisi par'].map(t => el('th', { textContent: t })))), corps)));
+    }
+
+    // Mon suivi : mes taux de présence et de retard, et mes soirées appelées (règle « mes lignes » sur appel)
+    async function suivi() {
+      const taux = depuis => sb.rpc('stats_joueurs', { depuis }).eq('joueur', moi).maybeSingle();
+      const [{ data: trois }, { data: tout }, { data: soirees, error }] = await Promise.all([
+        taux(new Date(debutDe('3m') + 'T00:00').toISOString()), taux(null),
+        sb.from('appel').select('etat, retard_min, sorties(titre, debut)').eq('joueur', moi)]);
+      if (error) return ouvrir(fermer(), el('h2', { textContent: 'Mon suivi' }), el('p', { textContent: 'Suivi indisponible : ' + error.message }));
+      const pct = (a, b) => b ? Math.round(100 * a / b) + ' %' : null;
+      const periode = (titre, r) => el('tr', {}, ...[titre, r?.soirees ?? 0, pct(r?.presents, r?.soirees), pct(r?.retards, r?.presents),
+        r?.retard_moyen, r?.absents_prevenus, r?.absents, r?.bancs].map(v => el('td', { textContent: v ?? '–' })));
+      soirees.sort((a, b) => b.sorties.debut.localeCompare(a.sorties.debut));
+      const tableau = (titres, ...lignes) => el('div', { className: 'stats' }, el('table', {},
+        el('thead', {}, el('tr', {}, ...titres.map(t => el('th', { textContent: t })))), el('tbody', {}, ...lignes)));
+      ouvrir(fermer(), el('h2', { textContent: 'Mon suivi' }),
+        tableau(['Période', 'Soirées', 'Présence', 'Retard', 'Retard moyen (min)', 'Absent prévenu', 'Absent', 'Mis au banc'],
+          periode('3 derniers mois', trois), periode('Depuis le début', tout)),
+        el('p', { className: 'vide', textContent: 'Présence : Présent ou Retard sur les soirées appelées, banc exclu. Retard : retards sur les soirées jouées.' }),
+        el('h3', { textContent: 'Mes soirées' }),
+        soirees.length ? tableau(['Date', 'Sortie', 'Appel'], ...soirees.map(a => el('tr', {}, ...[quand(a.sorties.debut), a.sorties.titre || 'Sortie',
+          ETATS[a.etat] + (a.etat === 'retard' && a.retard_min != null ? ` (${a.retard_min} min)` : '')].map(v => el('td', { textContent: v })))))
+          : el('p', { textContent: 'Aucune soirée appelée pour le moment.' }));
     }
 
     // Mes personnages : principal et secondaires (base des loots par personnage)
