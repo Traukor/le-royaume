@@ -39,7 +39,8 @@
     const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
     const etat = document.getElementById('etat');
     const contenu = document.getElementById('contenu');
-    let officier = false;
+    let officier = false; // interface officier affichée (tout le monde arrive sur l'interface membre)
+    let droits = {}; // rôles Discord vérifiés : autorise (officier), gestion (gestion du site)
 
     // crée un élément ; les textes passent par textContent (pas d'injection possible)
     const el = (tag, { dataset, ...props } = {}, ...enfants) => {
@@ -70,11 +71,12 @@
       const { data, error } = await sb.functions.invoke('verifier-role');
       if (error) return afficher('La vérification a échoué. Réessayez plus tard.', bouton('Se déconnecter', '', deconnexion));
       if (!data.membre) return afficher("Ce compte Discord n'a pas de rôle de la guilde (membre ou postulant) sur le serveur.", bouton('Se déconnecter', '', deconnexion));
-      officier = data.autorise;
+      officier = false;
+      droits = data;
       moi = session.user.user_metadata.provider_id ?? session.user.user_metadata.sub;
       chargerAbsences();
       chargerPersos();
-      afficher(`Bienvenue ${data.pseudo}${officier ? ', accès officier confirmé' : ''}.`, bouton('Se déconnecter', '', deconnexion));
+      afficher(`Bienvenue ${data.pseudo}${data.gestion ? ', accès gestion du site confirmé' : data.autorise ? ', accès officier confirmé' : ''}.`, bouton('Se déconnecter', '', deconnexion));
 
       calendrier(); // tout de suite depuis la base ; redessiné si la synchronisation apporte du nouveau
       const synchro = await sb.functions.invoke('synchro-raidhelper');
@@ -115,7 +117,8 @@
       });
       contenu.replaceChildren(
         ...(avertissement ? [el('p', { className: 'vide', textContent: avertissement })] : []),
-        el('p', { className: 'outils' }, officier && bouton('Statistiques', '', () => stats()),
+        el('p', { className: 'outils' }, droits.autorise && bouton(officier ? "Revenir à l'interface membre" : "Passer à l'interface officier", '', basculer),
+          droits.gestion && bouton('Statistiques', '', () => stats()),
           bouton(officier ? 'Loots' : 'Mes loots', '', historique), officier && bouton('Actualiser', '', actualiser)),
         el('div', { className: 'cal-tete' },
           el('button', { className: 'nav-mois', textContent: '‹', ariaLabel: 'Mois précédent', onclick: changer(-1) }),
@@ -126,6 +129,9 @@
           ...cases),
         blocAbsences, blocPersos);
     }
+
+    // passage de l'interface membre à l'interface officier (appel, loots) et retour
+    const basculer = () => { officier = !officier; chargerAbsences(); calendrier(); };
 
     // synchronisation immédiate, sans attendre le délai de 5 minutes (officiers)
     async function actualiser(e) {
@@ -345,9 +351,11 @@
       ouvrir(...entete, onglets, ...Object.values(panneaux));
     }
 
-    // Historique des loots, filtrable (officiers : tous ; membre : les siens, par les règles d'accès)
+    // Historique des loots, filtrable (interface officier : tous ; interface membre : les siens)
     async function historique() {
-      const { data, error } = await sb.from('loots').select('*, sorties(titre)').order('le', { ascending: false });
+      let requete = sb.from('loots').select('*, sorties(titre)');
+      if (!officier) requete = requete.eq('joueur', moi); // un officier en interface membre ne voit que les siens
+      const { data, error } = await requete.order('le', { ascending: false });
       if (error) return ouvrir(fermer(), el('h2', { textContent: 'Loots' }), el('p', { textContent: 'Loots indisponibles : ' + error.message }));
       const filtre = el('input', { type: 'search', placeholder: 'Filtrer : joueur, personnage, objet, boss…', ariaLabel: 'Filtrer' });
       const corps = el('tbody');
@@ -403,12 +411,14 @@
         message);
     }
 
-    // Absences longues : chacun déclare les siennes ; les officiers voient celles de tous
+    // Absences longues : chacun déclare les siennes ; l'interface officier montre celles de tous
     const blocAbsences = el('section', { className: 'absences' });
     let moi = null; // identifiant Discord du compte connecté
 
     async function chargerAbsences() {
-      const { data, error } = await sb.from('absences').select('*').gte('au', jourParis(Date.now())).order('du');
+      let requete = sb.from('absences').select('*').gte('au', jourParis(Date.now()));
+      if (!officier) requete = requete.eq('joueur', moi);
+      const { data, error } = await requete.order('du');
       if (error) return blocAbsences.replaceChildren(el('p', { textContent: 'Absences indisponibles pour le moment.' }));
       const date = d => new Date(d + 'T12:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
       const du = el('input', { type: 'date', min: jourParis(Date.now()), ariaLabel: 'Du' });
@@ -439,7 +449,7 @@
         message);
     }
 
-    // Statistiques d'appel (officiers), triables, exportables en CSV
+    // Statistiques d'appel (gestion du site), triables, exportables en CSV
     const PERIODES = { '3s': '3 semaines', '3m': '3 mois', date: 'une date à choisir' };
     const debutDe = (choix, date) => { // AAAA-MM-JJ
       const d = new Date();
