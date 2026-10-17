@@ -104,7 +104,14 @@ alter table public.inscriptions  enable row level security;
 alter table public.appel         enable row level security;
 alter table public.appel_journal enable row level security;
 
--- acces : aucune règle, seul le serveur (clé service) y touche.
+-- Date de la dernière synchronisation Raid-Helper réussie (délai de 5 minutes entre deux synchronisations).
+create table if not exists public.synchro (
+  id int primary key check (id = 1),
+  le timestamptz not null
+);
+alter table public.synchro enable row level security;
+
+-- acces et synchro : aucune règle, seul le serveur (clé service) y touche.
 -- (select …) autour des fonctions de droits : évaluées une fois par requête et non pour chaque ligne.
 drop policy if exists lire on public.sorties;
 create policy lire on public.sorties for select using ((select public.est_membre()));

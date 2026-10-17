@@ -312,6 +312,7 @@
         sortie(id, 'loots');
       });
       const supprimerLoot = l => async () => {
+        if (!confirm(`Supprimer le loot « ${l.objet} » ? Cette suppression est définitive.`)) return;
         const { error } = await sb.from('loots').delete().eq('id', l.id);
         if (error) return messageLoot.textContent = 'La suppression a échoué : ' + error.message;
         sortie(id, 'loots');
@@ -395,7 +396,7 @@
           p.principal ? el('em', { textContent: ' principal' })
             : el('button', { className: 'lien', type: 'button', textContent: 'définir comme principal', onclick: principal(p) }),
           el('button', { className: 'retirer', type: 'button', textContent: '×', title: 'Supprimer', ariaLabel: 'Supprimer ' + p.nom,
-            onclick: agir(() => sb.from('personnages').delete().eq('id', p.id)) }))))
+            onclick: () => confirm(`Supprimer le personnage ${p.nom} ?`) && agir(() => sb.from('personnages').delete().eq('id', p.id))() }))))
           : el('p', { textContent: 'Aucun personnage : ajoutez au moins votre personnage principal, il sert à noter vos loots.' }),
         el('p', { className: 'declarer' }, nom, ' ', classe, ' ', spe, ' ', ajouterPerso),
         message);

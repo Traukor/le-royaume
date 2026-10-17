@@ -35,8 +35,9 @@ Deno.serve(async (req) => {
   const { data: officier } = forcer ? await utilisateur.rpc("est_officier") : { data: false };
 
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-  const { data: derniere } = await admin.from("sorties").select("maj").order("maj", { ascending: false }).limit(1);
-  if (!officier && derniere?.[0] && Date.now() - Date.parse(derniere[0].maj) < 5 * 60_000) return json({ synchro: false });
+  // date de la dernière synchronisation réussie (table synchro, une seule ligne)
+  const { data: derniere } = await admin.from("synchro").select("le").maybeSingle();
+  if (!officier && derniere && Date.now() - Date.parse(derniere.le) < 5 * 60_000) return json({ synchro: false });
 
   const cle = Deno.env.get("RAIDHELPER_API_KEY")!;
   const depuis = Math.floor(Date.now() / 1000) - FENETRE_JOURS * 86400;
@@ -83,5 +84,7 @@ Deno.serve(async (req) => {
       .not("discord_id", "in", `(${[...parJoueur.keys(), "0"].join(",")})`);
     if (e3) return json({ erreur: e3.message }, 500);
   }
+  const { error: e4 } = await admin.from("synchro").upsert({ id: 1, le: maj });
+  if (e4) return json({ erreur: e4.message }, 500);
   return json({ synchro: true, sorties: evenements.length });
 });
