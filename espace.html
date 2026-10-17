@@ -39,7 +39,8 @@
     const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
     const etat = document.getElementById('etat');
     const contenu = document.getElementById('contenu');
-    let officier = false; // interface officier affichée (tout le monde arrive sur l'interface membre)
+    let vue = 'membre'; // interface affichée : tout le monde arrive sur l'interface membre
+    let officier = false; // vue === 'officier'
     let droits = {}; // rôles Discord vérifiés : autorise (officier), gestion (gestion du site)
 
     // crée un élément ; les textes passent par textContent (pas d'injection possible)
@@ -71,7 +72,7 @@
       const { data, error } = await sb.functions.invoke('verifier-role');
       if (error) return afficher('La vérification a échoué. Réessayez plus tard.', bouton('Se déconnecter', '', deconnexion));
       if (!data.membre) return afficher("Ce compte Discord n'a pas de rôle de la guilde (membre ou postulant) sur le serveur.", bouton('Se déconnecter', '', deconnexion));
-      officier = false;
+      vue = 'membre'; officier = false;
       droits = data;
       moi = session.user.user_metadata.provider_id ?? session.user.user_metadata.sub;
       chargerAbsences();
@@ -101,8 +102,8 @@
         .gte('debut', new Date(debut.getTime() - 86400e3).toISOString())
         .lt('debut', new Date(jours[41].getTime() + 86400e3).toISOString()).order('debut')
         .or('classe.is.null,classe.neq.Absence', { referencedTable: 'inscriptions' }); // inscrits hors « Absence »
-      if (n !== demandeCal) return;
-      if (error) return contenu.replaceChildren(el('p', { textContent: 'Calendrier indisponible pour le moment.' }));
+      if (n !== demandeCal || vue === 'gestion') return; // la synchronisation ne remplace pas les statistiques
+      if (error) return contenu.replaceChildren(interfaces(), el('p', { textContent: 'Calendrier indisponible pour le moment.' }));
 
       const parJour = Map.groupBy(data, s => jourParis(s.debut));
       const aujourdhui = jourParis(Date.now());
@@ -117,9 +118,8 @@
       });
       contenu.replaceChildren(
         ...(avertissement ? [el('p', { className: 'vide', textContent: avertissement })] : []),
-        el('p', { className: 'outils' }, droits.autorise && bouton(officier ? "Revenir à l'interface membre" : "Passer à l'interface officier", '', basculer),
-          droits.gestion && bouton('Statistiques', '', () => stats()),
-          bouton(officier ? 'Loots' : 'Mes loots', '', historique), officier && bouton('Actualiser', '', actualiser)),
+        interfaces(),
+        el('p', { className: 'outils' }, bouton(officier ? 'Loots' : 'Mes loots', '', historique), officier && bouton('Actualiser', '', actualiser)),
         el('div', { className: 'cal-tete' },
           el('button', { className: 'nav-mois', textContent: '‹', ariaLabel: 'Mois précédent', onclick: changer(-1) }),
           el('h2', { textContent: mois.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) }),
@@ -130,8 +130,19 @@
         blocAbsences, blocPersos);
     }
 
-    // passage de l'interface membre à l'interface officier (appel, loots) et retour
-    const basculer = () => { officier = !officier; chargerAbsences(); calendrier(); };
+    // choix de l'interface selon les rôles : membre pour tous, officier (appel, loots), gestion du site (statistiques)
+    const VUES = { membre: 'Membre', officier: 'Officier', gestion: 'Gestion du site' };
+    const interfaces = () => {
+      const permises = Object.entries(VUES).filter(([v]) => v === 'membre' || (v === 'officier' ? droits.autorise : droits.gestion));
+      return permises.length > 1 && el('div', { className: 'onglets', role: 'tablist', ariaLabel: 'Interface' }, // rien pour un simple membre
+        ...permises.map(([v, t]) => el('button', { type: 'button', role: 'tab', textContent: t, ariaSelected: v === vue, onclick: () => changerVue(v) })));
+    };
+    const changerVue = v => {
+      vue = v; officier = v === 'officier';
+      if (v === 'gestion') return stats();
+      chargerAbsences();
+      calendrier();
+    };
 
     // synchronisation immédiate, sans attendre le délai de 5 minutes (officiers)
     async function actualiser(e) {
@@ -461,7 +472,7 @@
       ['inscrits', 'Inscrit'], ['inscrits_valides', 'Inscrit et validé'], ['inscrits_presents', 'Inscrit et présent'], ['inscrits_bancs', 'Inscrit et mis au banc'],
       ['loots', 'Loots'], ['loots_soiree', 'Loots / soirée présente'], ['dernier', 'Dernier loot']];
 
-    // la fenêtre et ses réglages sont créés une fois ; seul le résultat est recalculé
+    // interface gestion du site ; la vue et ses réglages sont créés une fois, seul le résultat est recalculé
     // (sinon le sélecteur de date, recréé à chaque date valide, perdrait la saisie en cours)
     function stats() {
       let tri = 'bancs', sens = -1, debut, demande = 0;
@@ -506,7 +517,7 @@
           bouton('Exporter en CSV', '', exporter)] : [el('p', { textContent: 'Aucun appel sur cette période.' })]));
       }
 
-      ouvrir(fermer(), el('h2', { textContent: 'Statistiques' }),
+      contenu.replaceChildren(interfaces(), el('h2', { textContent: 'Statistiques' }),
         el('p', { className: 'periode' }, 'Depuis le ', liste, ' ', champ),
         el('p', { className: 'vide', textContent: 'Présence : Présent ou Retard sur les soirées appelées, banc exclu. Retard : retards sur les soirées jouées. Inscrit : inscription Raid-Helper hors Absence.' }),
         resultat);
