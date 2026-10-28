@@ -257,7 +257,8 @@ create or replace function public.preparer_loot() returns trigger
 language plpgsql security definer set search_path = '' as $$
 begin
   -- mise à null de personnage_id par la base (personnage ou sortie supprimés) : rien d'autre ne change
-  if pg_trigger_depth() > 1 then return new; end if;
+  -- (de même pour un rattachement : l'auteur et la date du loot restent ceux d'origine)
+  if pg_trigger_depth() > 1 or current_setting('royaume.rattachement', true) = 'oui' then return new; end if;
   new.modifie_par := (select pseudo from public.acces where user_id = auth.uid());
   new.modifie_le := now();
   if new.destination <> 'joueur' then
@@ -366,3 +367,21 @@ language sql stable security definer set search_path = '' as $$
     and not exists (select 1 from public.signatures s where s.joueur = a.discord_id and s.version = v)
   order by a.pseudo
 $$;
+
+-- ===== Rattachement d'un joueur ajouté à la main (« nom:… ») à son compte Discord (officiers) =====
+-- Son appel et ses loots passent sous l'identifiant Discord ; une soirée où les deux figurent garde la ligne Discord.
+-- Les changements d'appel sont journalisés (auteur = l'officier) ; les loots gardent leur auteur et leur date.
+create or replace function public.rattacher(ancien text, nouveau text) returns void
+language plpgsql security definer set search_path = '' as $$
+declare
+  n text := (select nom from public.inscriptions where discord_id = nouveau order by inscrit_le desc nulls last limit 1);
+begin
+  if not public.est_officier() then raise exception 'réservé aux officiers'; end if;
+  if ancien not like 'nom:%' or n is null then raise exception 'rattachement impossible'; end if;
+  delete from public.appel a where a.joueur = ancien
+    and exists (select 1 from public.appel b where b.sortie_id = a.sortie_id and b.joueur = nouveau);
+  update public.appel set joueur = nouveau, nom = n where joueur = ancien;
+  perform set_config('royaume.rattachement', 'oui', true);
+  update public.loots set joueur = nouveau, nom = n where joueur = ancien;
+  perform set_config('royaume.rattachement', '', true);
+end $$;

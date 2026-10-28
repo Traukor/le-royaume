@@ -234,3 +234,27 @@ button.btn { background: transparent; color: var(--gold); font-size: 1rem; curso
 .lien { margin-left: 8px; padding: 0; font: inherit; font-size: .85rem; color: var(--gold); background: none; border: 0; text-decoration: underline; cursor: pointer; }
 .espace input[type=search] { width: min(100%, 360px); padding: 6px 8px; font: inherit; background: var(--bg); color: var(--text); border: 1px solid var(--gold-dark); border-radius: 4px; }
 .zoom:has(.loots:not([hidden])) { width: min(1060px, calc(100% - 32px)); }
+
+/* Stats joueurs : comparaison côte à côte et graphiques */
+.zoom:has(.large) { width: min(1060px, calc(100% - 32px)); }
+.compare th, .compare td { text-align: center; }
+.compare tbody th { text-align: left; font-weight: 400; color: var(--muted); }
+.compare thead th { vertical-align: top; }
+.compare .section th { padding-top: 14px; color: var(--gold); font: 700 .85rem "Cinzel", serif; text-align: left; }
+.barre { display: inline-block; width: 60px; height: 8px; background: var(--panel); border: 1px solid var(--gold-dark); border-radius: 4px; vertical-align: middle; overflow: hidden; }
+.barre span { display: block; height: 100%; background: var(--gold); }
+.repartition { display: inline-flex; width: 120px; height: 12px; border-radius: 3px; overflow: hidden; vertical-align: middle; }
+.r-presents_seuls { background: var(--gold); }
+.r-retards { background: var(--gold-dark); }
+.r-bancs { background: #5b7a86; }
+.r-absents_prevenus { background: #a9a594; }
+.r-absents { background: #c0533f; }
+.legende { font-size: .85rem; color: var(--muted); }
+.legende > span { margin-right: 12px; white-space: nowrap; }
+.legende > span span { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: middle; }
+.courbe { width: 120px; height: 36px; vertical-align: middle; }
+.courbe line { stroke: var(--gold-dark); stroke-dasharray: 2 3; stroke-width: 1; }
+.courbe polyline { fill: none; stroke: var(--gold); stroke-width: 1.5; }
+.courbe circle { fill: var(--gold); }
+.journal { margin-top: 12px; text-align: left; }
+.journal summary { cursor: pointer; color: var(--gold); }
