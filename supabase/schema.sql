@@ -327,3 +327,42 @@ language sql stable set search_path = '' as $$
     and exists (select 1 from public.appel x where x.sortie_id = s.id)
   group by l.joueur
 $$;
+
+-- ===== Lot 4 : signature de la charte =====
+
+-- Une signature par joueur et par version de la charte ; joueur, nom et date fixés par la base.
+create table if not exists public.signatures (
+  joueur  text not null,
+  nom     text,
+  version text not null,
+  le      timestamptz not null default now(),
+  primary key (joueur, version)
+);
+create or replace function public.signer_charte() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  select discord_id, pseudo into new.joueur, new.nom from public.acces where user_id = auth.uid();
+  new.le := now();
+  return new;
+end $$;
+drop trigger if exists signer_charte on public.signatures;
+create trigger signer_charte before insert on public.signatures
+  for each row execute function public.signer_charte();
+
+alter table public.signatures enable row level security;
+-- une signature ne se modifie ni ne se retire : seules la lecture et l'ajout sont permis
+drop policy if exists lire on public.signatures;
+create policy lire on public.signatures for select
+  using ((select public.est_officier()) or ((select public.est_membre()) and joueur = (select public.mon_discord())));
+drop policy if exists signer on public.signatures;
+create policy signer on public.signatures for insert with check ((select public.est_membre()));
+
+-- Membres pas encore signataires d'une version (officiers). Limité aux comptes déjà connectés à l'espace :
+-- la liste complète viendra du roster (lot 5).
+create or replace function public.non_signataires(v text) returns setof text
+language sql stable security definer set search_path = '' as $$
+  select a.pseudo from public.acces a
+  where public.est_officier() and a.membre
+    and not exists (select 1 from public.signatures s where s.joueur = a.discord_id and s.version = v)
+  order by a.pseudo
+$$;

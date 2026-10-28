@@ -77,6 +77,7 @@
       moi = session.user.user_metadata.provider_id ?? session.user.user_metadata.sub;
       chargerAbsences();
       chargerPersos();
+      chargerCharte();
       afficher(`Bienvenue ${data.pseudo}${data.gestion ? ', accès gestion du site confirmé' : data.autorise ? ', accès officier confirmé' : ''}.`, bouton('Se déconnecter', '', deconnexion));
 
       calendrier(); // tout de suite depuis la base ; redessiné si la synchronisation apporte du nouveau
@@ -128,7 +129,7 @@
         el('div', { className: 'cal' },
           ...['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.'].map(j => el('div', { className: 'jsem', textContent: j })),
           ...cases),
-        blocAbsences, blocPersos);
+        blocCharte, blocAbsences, blocPersos);
     }
 
     // choix de l'interface selon les rôles : membre pour tous, officier (appel, loots), gestion du site (statistiques)
@@ -142,6 +143,7 @@
       vue = v; officier = v === 'officier';
       if (v === 'gestion') return stats();
       chargerAbsences();
+      chargerCharte();
       calendrier();
     };
 
@@ -172,7 +174,7 @@
     async function sortie(id, onglet) {
       const rien = { data: [] };
       const [{ data: s }, { data: inscrits }, { data: appel }, { data: compo }, { data: reglage },
-             { data: loots }, { data: persos }, { data: stats3m }] = await Promise.all([
+             { data: loots }, { data: persos }, { data: stats3m }, { data: journal }] = await Promise.all([
         sb.from('sorties').select('*').eq('id', id).single(),
         sb.from('inscriptions').select('*').eq('sortie_id', id).order('position'),
         officier ? sb.from('appel').select('*').eq('sortie_id', id) : rien,
@@ -181,6 +183,7 @@
         officier ? sb.from('loots').select('*').eq('sortie_id', id).order('le') : rien,
         officier ? sb.from('personnages').select('*').order('proprietaire').order('nom') : rien,
         officier ? sb.rpc('stats_joueurs', { depuis: debutDe('3m') + 'T00:00:00' }) : rien,
+        officier ? sb.from('appel_journal').select('*').eq('sortie_id', id).order('modifie_le', { ascending: false }) : rien,
       ]);
       if (!s) return;
       const jour = jourParis(s.debut);
@@ -290,6 +293,15 @@
         sortie(id, 'appel');
       });
 
+      // Historique des corrections (journal tenu par la base) : qui, quand, quel état
+      const noms = new Map([...inscrits.map(i => [i.discord_id, i.nom]), ...appel.map(a => [a.joueur, a.nom])]);
+      const historiqueAppel = journal.length > 0 && el('details', { className: 'journal' },
+        el('summary', { textContent: `Historique des corrections (${journal.length})` }),
+        el('ul', { className: 'inscrits' }, ...journal.map(j => el('li', {},
+          el('strong', { textContent: noms.get(j.joueur) ?? j.joueur.replace(/^nom:/, '') }),
+          ' : ' + (j.etat === 'retire' ? "retiré de l'appel" : ETATS[j.etat]) + (j.etat === 'retard' && j.retard_min != null ? ` (${j.retard_min} min)` : ''),
+          el('span', { textContent: ` — ${j.modifie_par ?? '?'}, ${quand(j.modifie_le)}` })))));
+
       // Loots : saisie rapide, avec l'aide à la décision (présence, loots et dernier loot des présents sur 3 mois)
       const presentsAppel = appel.filter(a => a.etat === 'present' || a.etat === 'retard');
       const candidats = presentsAppel.length ? presentsAppel.map(a => ({ joueur: a.joueur, nom: a.nom }))
@@ -347,7 +359,7 @@
       // onglets : la composition avant la soirée, l'appel une fois commencée, puis les loots
       const panneaux = {
         composition: el('div', {}, message, composition),
-        appel: el('div', {}, etatAppel, lignes, el('p', {}, nouveau, ajouter), enregistrer),
+        appel: el('div', {}, etatAppel, lignes, el('p', {}, nouveau, ajouter), enregistrer, historiqueAppel),
         loots: el('div', { className: 'loots' }, (loots ?? []).length ? listeLoots : el('p', { className: 'vide', textContent: 'Aucun loot saisi pour cette sortie.' }),
           el('h3', { textContent: 'Aide à la décision' }), candidats.length ? aide : el('p', { className: 'vide', textContent: 'Aucun présent.' }),
           el('h3', { textContent: 'Nouveau loot' }),
@@ -407,6 +419,35 @@
         soirees.length ? tableau(['Date', 'Sortie', 'Appel'], ...soirees.map(a => el('tr', {}, ...[quand(a.sorties.debut), a.sorties.titre || 'Sortie',
           ETATS[a.etat] + (a.etat === 'retard' && a.retard_min != null ? ` (${a.retard_min} min)` : '')].map(v => el('td', { textContent: v })))))
           : el('p', { textContent: 'Aucune soirée appelée pour le moment.' }));
+    }
+
+    // Charte : chaque membre approuve la version en cours ; l'interface officier liste qui ne l'a pas fait
+    const CHARTE = '2026-10-05'; // date de la dernière modification du texte de charte.html : la changer redemande la signature
+    const blocCharte = el('section', { className: 'absences' });
+
+    async function chargerCharte() {
+      const titre = el('h2', { textContent: 'Charte' });
+      const lien = el('a', { href: 'charte.html', target: '_blank', textContent: 'Lire la charte' });
+      if (officier) {
+        const [{ data: signes, error }, { data: manquants, error: e2 }] = await Promise.all([
+          sb.from('signatures').select('nom').eq('version', CHARTE).order('nom'), sb.rpc('non_signataires', { v: CHARTE })]);
+        if (error || e2) return blocCharte.replaceChildren(titre, el('p', { textContent: 'Signatures indisponibles pour le moment.' }));
+        return blocCharte.replaceChildren(titre,
+          el('p', {}, `Version du ${CHARTE} : ${signes.length} signature${signes.length > 1 ? 's' : ''}. `, lien),
+          el('p', { textContent: manquants.length ? 'Pas encore signée par : ' + manquants.join(', ') + '.' : 'Signée par tous les membres connus.' }),
+          el('p', { className: 'vide', textContent: "Seuls les membres déjà connectés à l'espace sont connus du site." }));
+      }
+      const { data, error } = await sb.from('signatures').select('le').eq('joueur', moi).eq('version', CHARTE).maybeSingle();
+      if (error) return blocCharte.replaceChildren(titre, el('p', { textContent: 'Charte indisponible pour le moment.' }));
+      const message = el('p', { className: 'vide' });
+      blocCharte.replaceChildren(titre, data
+        ? el('p', {}, `Vous avez approuvé la charte le ${new Date(data.le).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })}. `, lien)
+        : el('p', {}, "Merci de lire la charte de la guilde puis de l'approuver. ", lien, ' ',
+            bouton("J'ai lu et j'approuve", 'discord', async () => {
+              const { error } = await sb.from('signatures').insert({ version: CHARTE });
+              if (error) return message.textContent = "L'enregistrement a échoué : " + error.message;
+              chargerCharte();
+            })), message);
     }
 
     // Mes personnages : principal et secondaires (base des loots par personnage)
