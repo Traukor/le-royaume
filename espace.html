@@ -135,7 +135,7 @@
     const VUES = { membre: 'Membre', officier: 'Officier', gestion: 'Gestion du site' };
     const interfaces = () => {
       const permises = Object.entries(VUES).filter(([v]) => v === 'membre' || (v === 'officier' ? droits.autorise : droits.gestion));
-      return permises.length > 1 && el('div', { className: 'onglets', role: 'tablist', ariaLabel: 'Interface' }, // rien pour un simple membre
+      return permises.length < 2 ? '' : el('div', { className: 'onglets', role: 'tablist', ariaLabel: 'Interface' }, // rien pour un simple membre
         ...permises.map(([v, t]) => el('button', { type: 'button', role: 'tab', textContent: t, ariaSelected: v === vue, onclick: () => changerVue(v) })));
     };
     const changerVue = v => {
@@ -240,14 +240,14 @@
           ...Object.entries(ETATS).map(([v, t]) => el('label', {},
             el('input', { type: 'radio', name: 'e' + joueur, value: v, checked: v === etatInitial }), ' ' + t)),
           el('label', { className: 'min' }, el('input', { type: 'number', min: 0, value: minutes ?? '', placeholder: '?' }), ' min')));
-      // absence déclarée : hors de la liste, enregistré « absent prévenu » avec l'appel
-      const declares = inscrits.filter(i => absent.has(i.discord_id));
+      // absence déclarée : pré-rempli « absent prévenu », corrigeable si le joueur vient quand même ;
+      // un appel déjà enregistré l'emporte (une absence déclarée après coup ne l'écrase pas)
       if (!reprise) {
         for (const i of inscrits) {
-          if (absent.has(i.discord_id)) continue;
-          const a = saisi.get(i.discord_id), att = statut.get(i.discord_id) === 'attente';
-          const prevu = i.classe in PREREMPLI ? PREREMPLI[i.classe] : att ? 'banc' : 'present';
-          ligne(i.discord_id, i.nom, [detail(i), att && 'en attente'].filter(Boolean).join(' · '), a ? a.etat : prevu, a?.retard_min);
+          const a = saisi.get(i.discord_id), att = statut.get(i.discord_id) === 'attente', abs = absent.has(i.discord_id);
+          const prevu = abs ? 'absent_prevenu' : i.classe in PREREMPLI ? PREREMPLI[i.classe] : att ? 'banc' : 'present';
+          ligne(i.discord_id, i.nom, [detail(i), att && 'en attente', abs && 'absence déclarée'].filter(Boolean).join(' · '),
+            a ? a.etat : prevu, a?.retard_min);
         }
         for (const a of appel) if (!inscrits.some(i => i.discord_id === a.joueur)) ligne(a.joueur, a.nom, 'non inscrit', a.etat, a.retard_min, true);
       }
@@ -268,16 +268,19 @@
         : "Appel pas encore fait : pré-rempli avec les inscriptions Raid-Helper et la liste d'attente." });
 
       const enregistrer = bouton("Enregistrer l'appel", 'discord', async () => {
-        const rangs = [...lignes.querySelectorAll('.ligne')].map(f => {
-          const e = f.querySelector('input[type=radio]:checked')?.value;
+        const fiches = [...lignes.querySelectorAll('.ligne')];
+        // une ligne sans état (ex. « Tentative ») serait perdue sans bruit : on la fait choisir d'abord
+        const sansEtat = fiches.filter(f => !f.querySelector('input[type=radio]:checked')).map(f => f.dataset.nom);
+        if (sansEtat.length) return etatAppel.textContent = 'Choisissez un état pour : ' + sansEtat.join(', ') + '.';
+        const rangs = fiches.map(f => {
+          const e = f.querySelector('input[type=radio]:checked').value;
           const min = f.querySelector('input[type=number]').value;
-          return e && { sortie_id: id, joueur: f.dataset.joueur, nom: f.dataset.nom, etat: e,
+          return { sortie_id: id, joueur: f.dataset.joueur, nom: f.dataset.nom, etat: e,
             retard_min: e === 'retard' && min !== '' ? +min : null };
-        }).filter(Boolean)
-          .concat(declares.map(i => ({ sortie_id: id, joueur: i.discord_id, nom: i.nom, etat: 'absent_prevenu', retard_min: null })))
+        })
           // seules les lignes nouvelles ou modifiées partent (et sont donc journalisées)
           .filter(r => { const a = saisi.get(r.joueur); return !a || a.etat !== r.etat || a.retard_min !== r.retard_min; });
-        const presents = new Set([...lignes.querySelectorAll('.ligne')].map(f => f.dataset.joueur).concat(declares.map(i => i.discord_id)));
+        const presents = new Set(fiches.map(f => f.dataset.joueur));
         const retires = [...saisi.keys()].filter(j => !presents.has(j));
         if (!rangs.length && !retires.length) return etatAppel.textContent = 'Aucune modification.';
         const { error } = rangs.length ? await sb.from('appel').upsert(rangs) : {};
@@ -344,9 +347,7 @@
       // onglets : la composition avant la soirée, l'appel une fois commencée, puis les loots
       const panneaux = {
         composition: el('div', {}, message, composition),
-        appel: el('div', {}, etatAppel,
-          declares.length > 0 && el('p', { className: 'vide', textContent: 'Absence déclarée, compté absent prévenu : ' + declares.map(i => i.nom).join(', ') + '.' }),
-          lignes, el('p', {}, nouveau, ajouter), enregistrer),
+        appel: el('div', {}, etatAppel, lignes, el('p', {}, nouveau, ajouter), enregistrer),
         loots: el('div', { className: 'loots' }, (loots ?? []).length ? listeLoots : el('p', { className: 'vide', textContent: 'Aucun loot saisi pour cette sortie.' }),
           el('h3', { textContent: 'Aide à la décision' }), candidats.length ? aide : el('p', { className: 'vide', textContent: 'Aucun présent.' }),
           el('h3', { textContent: 'Nouveau loot' }),
