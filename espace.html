@@ -570,7 +570,7 @@
     };
     const COLONNES = [['nom', 'Joueur'], ['soirees', 'Soirées'], ['presence', 'En raid %'], ['retard', 'Retard %'],
       ['retard_moyen', 'Retard moyen (min)'], ['absents_prevenus', 'Absent prévenu'], ['absents', 'Absent'], ['bancs', 'Mis au banc'],
-      ['inscrits', 'Inscrit'], ['inscrits_valides', 'Inscrit et validé'], ['inscrits_presents', 'Inscrit et présent'], ['inscrits_bancs', 'Inscrit et mis au banc'],
+      ['inscrits', 'Inscrit'], ['inscrits_valides', 'Inscrit et validé'], ['inscrits_presents', 'Inscrit et en raid'], ['inscrits_bancs', 'Inscrit et mis au banc'],
       ['loots', 'Loots'], ['loots_soiree', 'Loots / soirée en raid'], ['dernier', 'Dernier loot']];
 
     const EXPLICATION = 'En raid : Présent ou Retard sur les soirées appelées, banc exclu. Retard : retards sur les soirées jouées.';
@@ -678,7 +678,7 @@
         const parJoueur = new Map(data.map(r => [r.joueur, { ...r, presents_seuls: r.presents - r.retards }]));
         const tous = data.filter(r => r.nom).sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
         const options = (choisi, vide) => [el('option', { value: '', textContent: vide }),
-          ...tous.map(r => el('option', { value: r.joueur, textContent: r.nom + (r.joueur.startsWith('nom:') ? ' (non inscrit)' : ''), selected: r.joueur === choisi }))];
+          ...tous.filter(r => r.joueur === choisi || !compares.some(c => c.joueur === r.joueur)).map(r => el('option', { value: r.joueur, textContent: r.nom + (r.joueur.startsWith('nom:') ? ' (non inscrit)' : ''), selected: r.joueur === choisi }))];
         const plein = compares.length >= 4;
         const ajout = el('select', { ariaLabel: 'Ajouter un joueur', disabled: plein, onchange: e => {
           const r = parJoueur.get(e.target.value);
