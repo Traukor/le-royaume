@@ -588,7 +588,7 @@
       };
       blocAbsences.replaceChildren(
         el('h2', { textContent: officier ? 'Absences déclarées' : 'Mes absences' }),
-        !officier && el('p', { className: 'declarer' }, 'Absent sur une période (par ex. vacances) : ', el('label', {}, 'du ', du), ' ', el('label', {}, 'au ', au), ' ', motif, ' ', declarer),
+        officier ? '' : el('p', { className: 'declarer' }, 'Absent sur une période (par ex. vacances) : ', el('label', {}, 'du ', du), ' ', el('label', {}, 'au ', au), ' ', motif, ' ', declarer),
         message,
         data.length ? el('ul', { className: 'inscrits' }, ...data.map(a => el('li', {},
           officier && el('strong', { textContent: a.nom + ' : ' }),
