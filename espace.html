@@ -166,7 +166,9 @@
           el('tbody', {}, ...data.map(c => el('tr', {}, ...[c.pseudo ?? '?', niveau(c), quand(c.maj)].map(v => el('td', { textContent: v }))))))),
         el('p', { className: 'vide', textContent: "Accès relu sur le Discord à chaque ouverture de l'espace." }),
         el('h2', { textContent: 'Annonce des signatures' }),
-        e2 ? el('p', { textContent: 'Modèles indisponibles pour le moment.' }) : annonces(modeles, reglage?.valeur ?? 'sobre'));
+        e2 ? el('p', { textContent: 'Modèles indisponibles pour le moment.' }) : annonces(modeles, reglage?.valeur ?? 'sobre'),
+        blocCharte);
+      chargerCharte();
     }
 
     // Choix du message posté par le bot dans le salon des officiers à chaque signature de la charte.
@@ -515,13 +517,13 @@
           : el('p', { textContent: 'Aucun loot.' })));
     }
 
-    // Charte : chaque membre l'approuve une fois ; l'interface officier liste qui ne l'a pas fait
+    // Charte : chaque membre l'approuve une fois ; la gestion du site liste les signatures et qui n'a pas signé
     const blocCharte = el('section', { className: 'absences' });
 
     async function chargerCharte() {
       const titre = el('h2', { textContent: 'Charte' });
       const lien = el('a', { href: 'charte.html', target: '_blank', textContent: 'Lire la charte' });
-      if (officier) {
+      if (vue === 'gestion') {
         const [{ data: signes, error }, { data: manquants, error: e2 }] = await Promise.all([
           sb.from('signatures').select('joueur, nom').order('nom'), sb.rpc('non_signataires')]);
         if (error || e2) return blocCharte.replaceChildren(titre, el('p', { textContent: 'Signatures indisponibles pour le moment.' }));
