@@ -15,7 +15,7 @@ const SITE = "https://le-royaume.fr";
 const LOGO = `${SITE}/img/logo-360.png`;
 const OR = 0xd4af37, VERT = 0x57f287;
 
-type Signature = { id: string; pseudo: string; avatar: string; ts: number; version: string; invite: boolean };
+type Signature = { id: string; pseudo: string; avatar: string; ts: number; invite: boolean };
 
 // les 4 modèles : contenu (avec @here, hors embed : un @here dans un embed ne notifie personne) et embed
 const MODELES: Record<string, (s: Signature) => { content: string; embeds: unknown[] }> = {
@@ -35,7 +35,7 @@ const MODELES: Record<string, (s: Signature) => { content: string; embeds: unkno
       description: `Par la présente, **${s.pseudo}** (<@${s.id}>) a apposé son sceau sur la Charte du Royaume.\n\n` +
         (s.invite ? "Officiers, un nouvel aspirant attend votre accueil !" : "Que son engagement soit salué !"),
       fields: [{ name: "🖋️ Sceau apposé le", value: `<t:${s.ts}:F>` }],
-      footer: { text: `Le Royaume · Charte (version du ${s.version})` },
+      footer: { text: "Le Royaume · Charte de la guilde", icon_url: LOGO },
     }],
   }),
   recrue: (s) => ({
@@ -83,8 +83,8 @@ Deno.serve(async (req) => {
   const avatar = profil?.avatar
     ? `https://cdn.discordapp.com/avatars/${compte.discord_id}/${profil.avatar}.png`
     : "https://cdn.discordapp.com/embed/avatars/0.png";
-  const signature = (le: string, version: string): Signature => ({
-    id: compte.discord_id, pseudo: compte.pseudo ?? "?", avatar, ts: Math.floor(Date.parse(le) / 1000), version, invite: !compte.membre,
+  const signature = (le: string): Signature => ({
+    id: compte.discord_id, pseudo: compte.pseudo ?? "?", avatar, ts: Math.floor(Date.parse(le) / 1000), invite: !compte.membre,
   });
   const envoyer = (message: unknown) => fetch(`https://discord.com/api/v10/channels/${SALON}/messages`, {
     method: "POST", headers: { ...bot, "Content-Type": "application/json" }, body: JSON.stringify(message),
@@ -93,7 +93,7 @@ Deno.serve(async (req) => {
   if (apercu || essai) {
     const { data: gestion } = await utilisateur.rpc("est_gestion");
     if (!gestion) return json({ erreur: "réservé à la gestion du site" }, 403);
-    const exemple = { ...signature(new Date().toISOString(), "exemple"), invite: true }; // le cas qui demande une action
+    const exemple = { ...signature(new Date().toISOString()), invite: true }; // le cas qui demande une action
     if (apercu) return json(Object.fromEntries(Object.entries(MODELES).map(([k, f]) => [k, f(exemple)])));
     if (!MODELES[essai]) return json({ erreur: "modèle inconnu" }, 400);
     const m = MODELES[essai](exemple);
@@ -102,15 +102,14 @@ Deno.serve(async (req) => {
   }
 
   // signature pas encore annoncée, marquée annoncée en une seule opération (deux appels simultanés : un seul message)
-  const { data: lignes } = await admin.from("signatures").update({ annoncee: true })
-    .eq("joueur", compte.discord_id).eq("annoncee", false).select("le, version");
-  if (!lignes?.length) return json({ envoye: false });
-  const derniere = lignes.sort((a, b) => b.le.localeCompare(a.le))[0];
+  const { data: ligne } = await admin.from("signatures").update({ annoncee: true })
+    .eq("joueur", compte.discord_id).eq("annoncee", false).select("le").maybeSingle();
+  if (!ligne) return json({ envoye: false });
   const { data: reglage } = await admin.from("reglages").select("valeur").eq("cle", "annonce_signature").maybeSingle();
   const modele = MODELES[reglage?.valeur ?? "sobre"] ?? MODELES.sobre;
-  const r = await envoyer({ ...modele(signature(derniere.le, derniere.version)), allowed_mentions: { parse: ["everyone"] } });
+  const r = await envoyer({ ...modele(signature(ligne.le)), allowed_mentions: { parse: ["everyone"] } });
   if (!r.ok) { // échec : la signature redevient « non annoncée », un nouvel appel la renverra
-    await admin.from("signatures").update({ annoncee: false }).eq("joueur", compte.discord_id).eq("version", derniere.version);
+    await admin.from("signatures").update({ annoncee: false }).eq("joueur", compte.discord_id);
     return json({ erreur: `Discord a répondu ${r.status}` }, 502);
   }
   return json({ envoye: true });

@@ -348,14 +348,19 @@ $$;
 
 -- ===== Lot 4 : signature de la charte =====
 
--- Une signature par joueur et par version de la charte ; joueur, nom et date fixés par la base.
+-- Une signature par joueur ; joueur, nom et date fixés par la base.
 create table if not exists public.signatures (
-  joueur  text not null,
+  joueur  text primary key,
   nom     text,
-  version text not null,
-  le      timestamptz not null default now(),
-  primary key (joueur, version)
+  le      timestamptz not null default now()
 );
+-- ancienne colonne version (signature par version de la charte) : la charte n'a qu'une version
+alter table public.signatures drop column if exists version;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conrelid = 'public.signatures'::regclass and contype = 'p') then
+    alter table public.signatures add primary key (joueur);
+  end if;
+end $$;
 create or replace function public.signer_charte() returns trigger
 language plpgsql security definer set search_path = '' as $$
 begin
@@ -383,10 +388,10 @@ create policy signer on public.signatures for insert with check ((select public.
 drop policy if exists retirer on public.signatures;
 create policy retirer on public.signatures for delete using ((select public.est_officier()));
 
--- Signataires de la dernière version, affichés publiquement sous la charte (charte.html, sans connexion).
+-- Signataires, affichés publiquement sous la charte (charte.html, sans connexion).
 create or replace function public.signataires() returns setof text
 language sql stable security definer set search_path = '' as $$
-  select nom from public.signatures where version = (select max(version) from public.signatures) order by lower(nom)
+  select nom from public.signatures order by lower(nom)
 $$;
 grant execute on function public.signataires() to anon;
 
@@ -397,13 +402,14 @@ language sql stable security definer set search_path = '' as $$
   select pseudo, serveur, membre, officier, gestion, maj from public.acces where public.est_gestion() order by maj desc
 $$;
 
--- Membres pas encore signataires d'une version (officiers). Limité aux comptes déjà connectés à l'espace :
+-- Membres pas encore signataires (officiers). Limité aux comptes déjà connectés à l'espace :
 -- la liste complète viendra du roster (lot 5).
-create or replace function public.non_signataires(v text) returns setof text
+drop function if exists public.non_signataires(text);
+create or replace function public.non_signataires() returns setof text
 language sql stable security definer set search_path = '' as $$
   select a.pseudo from public.acces a
   where public.est_officier() and a.membre
-    and not exists (select 1 from public.signatures s where s.joueur = a.discord_id and s.version = v)
+    and not exists (select 1 from public.signatures s where s.joueur = a.discord_id)
   order by a.pseudo
 $$;
 

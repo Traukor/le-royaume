@@ -515,8 +515,7 @@
           : el('p', { textContent: 'Aucun loot.' })));
     }
 
-    // Charte : chaque membre approuve la version en cours ; l'interface officier liste qui ne l'a pas fait
-    const CHARTE = '2026-10-05'; // date de la dernière modification du texte de charte.html : la changer redemande la signature
+    // Charte : chaque membre l'approuve une fois ; l'interface officier liste qui ne l'a pas fait
     const blocCharte = el('section', { className: 'absences' });
 
     async function chargerCharte() {
@@ -524,32 +523,32 @@
       const lien = el('a', { href: 'charte.html', target: '_blank', textContent: 'Lire la charte' });
       if (officier) {
         const [{ data: signes, error }, { data: manquants, error: e2 }] = await Promise.all([
-          sb.from('signatures').select('joueur, nom').eq('version', CHARTE).order('nom'), sb.rpc('non_signataires', { v: CHARTE })]);
+          sb.from('signatures').select('joueur, nom').order('nom'), sb.rpc('non_signataires')]);
         if (error || e2) return blocCharte.replaceChildren(titre, el('p', { textContent: 'Signatures indisponibles pour le moment.' }));
         const message = el('p', { className: 'vide' });
         // signature indésirable (le Discord a une invitation publique) : elle disparaît aussi de la page publique
         const retirer = g => async () => {
           if (!confirm(`Retirer la signature de ${g.nom} ? Elle disparaîtra de la page de la charte.`)) return;
-          const { error } = await sb.from('signatures').delete().eq('joueur', g.joueur).eq('version', CHARTE);
+          const { error } = await sb.from('signatures').delete().eq('joueur', g.joueur);
           if (error) return message.textContent = 'Le retrait a échoué : ' + error.message;
           chargerCharte();
         };
         return blocCharte.replaceChildren(titre,
-          el('p', {}, `Version du ${CHARTE} : ${signes.length} signature${signes.length > 1 ? 's' : ''}. `, lien),
+          el('p', {}, `${signes.length} signature${signes.length > 1 ? 's' : ''}. `, lien),
           signes.length > 0 && el('ul', { className: 'inscrits' }, ...signes.map(g => el('li', {}, g.nom ?? '?',
             el('button', { className: 'retirer', type: 'button', textContent: '×', title: 'Retirer la signature', ariaLabel: 'Retirer la signature de ' + g.nom, onclick: retirer(g) })))),
           message,
           el('p', { textContent: manquants.length ? 'Pas encore signée par : ' + manquants.join(', ') + '.' : 'Signée par tous les membres connus.' }),
           el('p', { className: 'vide', textContent: "Seuls les membres déjà connectés à l'espace sont connus du site." }));
       }
-      const { data, error } = await sb.from('signatures').select('le').eq('joueur', moi).eq('version', CHARTE).maybeSingle();
+      const { data, error } = await sb.from('signatures').select('le').eq('joueur', moi).maybeSingle();
       if (error) return blocCharte.replaceChildren(titre, el('p', { textContent: 'Charte indisponible pour le moment.' }));
       const message = el('p', { className: 'vide' });
       blocCharte.replaceChildren(titre, data
         ? el('p', {}, `Vous avez approuvé la charte le ${new Date(data.le).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })}. `, lien)
         : el('p', {}, "Merci de lire la charte de la guilde puis de l'approuver. ", lien, ' ',
             bouton("J'ai lu et j'approuve", 'discord', async () => {
-              const { error } = await sb.from('signatures').insert({ version: CHARTE });
+              const { error } = await sb.from('signatures').insert({});
               if (error) return message.textContent = "L'enregistrement a échoué : " + error.message;
               sb.functions.invoke('annoncer-signature'); // message du bot aux officiers ; la signature compte même s'il échoue
               chargerCharte();
