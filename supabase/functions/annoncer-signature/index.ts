@@ -107,7 +107,7 @@ Deno.serve(async (req) => {
   if (!lignes?.length) return json({ envoye: false });
   const derniere = lignes.sort((a, b) => b.le.localeCompare(a.le))[0];
   const { data: reglage } = await admin.from("reglages").select("valeur").eq("cle", "annonce_signature").maybeSingle();
-  const modele = MODELES[reglage?.valeur] ?? MODELES.sobre;
+  const modele = MODELES[reglage?.valeur ?? "sobre"] ?? MODELES.sobre;
   const r = await envoyer({ ...modele(signature(derniere.le, derniere.version)), allowed_mentions: { parse: ["everyone"] } });
   if (!r.ok) { // échec : la signature redevient « non annoncée », un nouvel appel la renverra
     await admin.from("signatures").update({ annoncee: false }).eq("joueur", compte.discord_id).eq("version", derniere.version);
