@@ -402,13 +402,13 @@ language sql stable security definer set search_path = '' as $$
   select pseudo, serveur, membre, officier, gestion, maj from public.acces where public.est_gestion() order by maj desc
 $$;
 
--- Membres pas encore signataires (gestion du site). Limité aux comptes déjà connectés à l'espace :
+-- Membres pas encore signataires (officiers et gestion du site). Limité aux comptes déjà connectés à l'espace :
 -- la liste complète viendra du roster (lot 5).
 drop function if exists public.non_signataires(text);
 create or replace function public.non_signataires() returns setof text
 language sql stable security definer set search_path = '' as $$
   select a.pseudo from public.acces a
-  where public.est_gestion() and a.membre
+  where (public.est_officier() or public.est_gestion()) and a.membre
     and not exists (select 1 from public.signatures s where s.joueur = a.discord_id)
   order by a.pseudo
 $$;

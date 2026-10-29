@@ -104,10 +104,13 @@
       const n = ++demandeCal; // mois changés vite : seule la dernière réponse s'affiche
       const debut = new Date(mois); debut.setDate(1 - (mois.getDay() + 6) % 7); // lundi de la 1re semaine
       const jours = Array.from({ length: 42 }, (_, i) => { const d = new Date(debut); d.setDate(debut.getDate() + i); return d; });
-      const { data, error } = await sb.from('sorties').select('id, titre, debut, inscriptions(count)')
+      let requete = sb.from('sorties').select('id, titre, debut, inscriptions(count)' + (officier ? '' : ', mes:inscriptions!inner(discord_id)'))
         .gte('debut', new Date(debut.getTime() - 86400e3).toISOString())
         .lt('debut', new Date(jours[41].getTime() + 86400e3).toISOString()).order('debut')
         .or('classe.is.null,classe.neq.Absence', { referencedTable: 'inscriptions' }); // inscrits hors « Absence »
+      // interface membre : seulement les sorties où l'on est inscrit sur Raid-Helper (hors « Absence »)
+      if (!officier) requete = requete.eq('mes.discord_id', moi).or('classe.is.null,classe.neq.Absence', { referencedTable: 'mes' });
+      const { data, error } = await requete;
       if (n !== demandeCal || vue === 'gestion') return; // la synchronisation ne remplace pas les statistiques
       if (error) return contenu.replaceChildren(interfaces(), el('p', { textContent: 'Calendrier indisponible pour le moment.' }));
 
@@ -517,13 +520,14 @@
           : el('p', { textContent: 'Aucun loot.' })));
     }
 
-    // Charte : chaque membre l'approuve une fois ; la gestion du site liste les signatures et qui n'a pas signé
+    // Charte : chaque membre l'approuve une fois ; officiers et gestion du site listent les signatures et qui n'a pas signé,
+    // seule la gestion du site retire une signature
     const blocCharte = el('section', { className: 'absences' });
 
     async function chargerCharte() {
       const titre = el('h2', { textContent: 'Charte' });
       const lien = el('a', { href: 'charte.html', target: '_blank', textContent: 'Lire la charte' });
-      if (vue === 'gestion') {
+      if (officier || vue === 'gestion') {
         const [{ data: signes, error }, { data: manquants, error: e2 }] = await Promise.all([
           sb.from('signatures').select('joueur, nom').order('nom'), sb.rpc('non_signataires')]);
         if (error || e2) return blocCharte.replaceChildren(titre, el('p', { textContent: 'Signatures indisponibles pour le moment.' }));
@@ -538,7 +542,7 @@
         return blocCharte.replaceChildren(titre,
           el('p', {}, `${signes.length} signature${signes.length > 1 ? 's' : ''}. `, lien),
           signes.length ? el('ul', { className: 'inscrits' }, ...signes.map(g => el('li', {}, g.nom ?? '?',
-            el('button', { className: 'retirer', type: 'button', textContent: '×', title: 'Retirer la signature', ariaLabel: 'Retirer la signature de ' + g.nom, onclick: retirer(g) })))) : '',
+            vue === 'gestion' && el('button', { className: 'retirer', type: 'button', textContent: '×', title: 'Retirer la signature', ariaLabel: 'Retirer la signature de ' + g.nom, onclick: retirer(g) })))) : '',
           message,
           el('p', { textContent: manquants.length ? 'Pas encore signée par : ' + manquants.join(', ') + '.' : 'Signée par tous les membres connus.' }),
           el('p', { className: 'vide', textContent: "Seuls les membres déjà connectés à l'espace sont connus du site." }));
@@ -557,7 +561,7 @@
             })), message);
     }
 
-    // Absences longues : chacun déclare les siennes ; l'interface officier montre celles de tous
+    // Absences longues : chacun déclare les siennes ; l'interface officier montre celles de tous, en lecture seule
     const blocAbsences = el('section', { className: 'absences' });
     let moi = null; // identifiant Discord du compte connecté
 
@@ -584,12 +588,12 @@
       };
       blocAbsences.replaceChildren(
         el('h2', { textContent: officier ? 'Absences déclarées' : 'Mes absences' }),
-        el('p', { className: 'declarer' }, 'Absent sur une période (par ex. vacances) : ', el('label', {}, 'du ', du), ' ', el('label', {}, 'au ', au), ' ', motif, ' ', declarer),
+        !officier && el('p', { className: 'declarer' }, 'Absent sur une période (par ex. vacances) : ', el('label', {}, 'du ', du), ' ', el('label', {}, 'au ', au), ' ', motif, ' ', declarer),
         message,
         data.length ? el('ul', { className: 'inscrits' }, ...data.map(a => el('li', {},
           officier && el('strong', { textContent: a.nom + ' : ' }),
           `du ${date(a.du)} au ${date(a.au)}`, a.motif && el('span', { textContent: ' — ' + a.motif }),
-          a.joueur === moi && el('button', { className: 'retirer', type: 'button', textContent: '×', title: 'Supprimer',
+          !officier && el('button', { className: 'retirer', type: 'button', textContent: '×', title: 'Supprimer',
             ariaLabel: 'Supprimer cette absence', onclick: supprimer(a) }))))
           : el('p', { textContent: 'Aucune absence à venir.' }));
     }
