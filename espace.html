@@ -535,8 +535,8 @@
         };
         return blocCharte.replaceChildren(titre,
           el('p', {}, `${signes.length} signature${signes.length > 1 ? 's' : ''}. `, lien),
-          signes.length > 0 && el('ul', { className: 'inscrits' }, ...signes.map(g => el('li', {}, g.nom ?? '?',
-            el('button', { className: 'retirer', type: 'button', textContent: '×', title: 'Retirer la signature', ariaLabel: 'Retirer la signature de ' + g.nom, onclick: retirer(g) })))),
+          signes.length ? el('ul', { className: 'inscrits' }, ...signes.map(g => el('li', {}, g.nom ?? '?',
+            el('button', { className: 'retirer', type: 'button', textContent: '×', title: 'Retirer la signature', ariaLabel: 'Retirer la signature de ' + g.nom, onclick: retirer(g) })))) : '',
           message,
           el('p', { textContent: manquants.length ? 'Pas encore signée par : ' + manquants.join(', ') + '.' : 'Signée par tous les membres connus.' }),
           el('p', { className: 'vide', textContent: "Seuls les membres déjà connectés à l'espace sont connus du site." }));
