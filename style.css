@@ -242,7 +242,7 @@ button.btn { background: transparent; color: var(--gold); font-size: 1rem; curso
 .compare thead th { vertical-align: top; }
 .compare .section th { padding-top: 14px; color: var(--gold); font: 700 .85rem "Cinzel", serif; text-align: left; }
 .barre { display: inline-block; width: 60px; height: 8px; background: var(--panel); border: 1px solid var(--gold-dark); border-radius: 4px; vertical-align: middle; overflow: hidden; }
-.barre span { display: block; height: 100%; background: var(--gold); }
+.barre span { display: block; height: 100%; background: oklch(.43627 .11 157.5); }
 .repartition { display: inline-flex; width: 120px; height: 12px; border-radius: 3px; overflow: hidden; vertical-align: middle; }
 .r-presents_seuls { background: oklch(.43627 .11 157.5); }
 .r-retards { background: var(--gold-dark); }
