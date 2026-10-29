@@ -244,7 +244,7 @@ button.btn { background: transparent; color: var(--gold); font-size: 1rem; curso
 .barre { display: inline-block; width: 60px; height: 8px; background: var(--panel); border: 1px solid var(--gold-dark); border-radius: 4px; vertical-align: middle; overflow: hidden; }
 .barre span { display: block; height: 100%; background: var(--gold); }
 .repartition { display: inline-flex; width: 120px; height: 12px; border-radius: 3px; overflow: hidden; vertical-align: middle; }
-.r-presents_seuls { background: var(--gold); }
+.r-presents_seuls { background: oklch(.43627 .11 157.5); }
 .r-retards { background: var(--gold-dark); }
 .r-bancs { background: #5b7a86; }
 .r-absents_prevenus { background: #a9a594; }
