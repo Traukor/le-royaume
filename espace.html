@@ -155,14 +155,57 @@
 
     // Gestion du site : comptes connus de l'espace (la base vérifie le rôle de gestion)
     async function gestion() {
-      const { data, error } = await sb.rpc('comptes');
+      const [{ data, error }, { data: modeles, error: e2 }, { data: reglage }] = await Promise.all([sb.rpc('comptes'),
+        sb.functions.invoke('annoncer-signature', { body: { apercu: true } }),
+        sb.from('reglages').select('valeur').eq('cle', 'annonce_signature').maybeSingle()]);
       if (vue !== 'gestion') return;
       const niveau = c => c.gestion ? 'Gestion' : c.officier ? 'Officier' : c.membre ? 'Membre' : c.serveur ? 'Invité (sans rôle)' : 'Hors du Discord';
       contenu.replaceChildren(interfaces(), el('h2', { textContent: 'Comptes connus' }),
         error ? el('p', { textContent: 'Comptes indisponibles : ' + error.message }) : el('div', { className: 'stats' }, el('table', {},
           el('thead', {}, el('tr', {}, ...['Pseudo', 'Accès', 'Dernière ouverture de l’espace'].map(t => el('th', { textContent: t })))),
           el('tbody', {}, ...data.map(c => el('tr', {}, ...[c.pseudo ?? '?', niveau(c), quand(c.maj)].map(v => el('td', { textContent: v }))))))),
-        el('p', { className: 'vide', textContent: "Accès relu sur le Discord à chaque ouverture de l'espace." }));
+        el('p', { className: 'vide', textContent: "Accès relu sur le Discord à chaque ouverture de l'espace." }),
+        el('h2', { textContent: 'Annonce des signatures' }),
+        e2 ? el('p', { textContent: 'Modèles indisponibles pour le moment.' }) : annonces(modeles, reglage?.valeur ?? 'sobre'));
+    }
+
+    // Choix du message posté par le bot dans le salon des officiers à chaque signature de la charte.
+    // Les aperçus sont les messages réels renvoyés par l'Edge Function (exemple : le compte connecté, en invité).
+    const MODELES = { sobre: 'Sobre doré', proclamation: 'Proclamation royale', recrue: 'Fiche recrue', minimal: 'Minimal' };
+    function annonces(modeles, choisi) {
+      const message = el('p', { className: 'vide' });
+      const choix = () => zone.querySelector('input:checked').value;
+      const zone = el('div', { className: 'modeles' }, ...Object.entries(MODELES).map(([k, t]) => el('label', { className: 'modele' },
+        el('span', {}, el('input', { type: 'radio', name: 'modele', value: k, checked: k === choisi, onchange: async () => {
+          const { error } = await sb.from('reglages').upsert({ cle: 'annonce_signature', valeur: k });
+          message.textContent = error ? "L'enregistrement a échoué : " + error.message : `Modèle « ${t} » enregistré.`;
+        } }), ' ' + t), apercu(modeles[k]))));
+      const essai = bouton('Envoyer un essai dans le salon', '', async () => {
+        const { error } = await sb.functions.invoke('annoncer-signature', { body: { essai: choix() } });
+        message.textContent = error ? "L'essai a échoué." : 'Essai envoyé, sans notification.';
+      });
+      return el('div', {}, el('p', { textContent: 'Message posté par le bot dans le salon des officiers (avec @here) à chaque signature :' }),
+        zone, el('p', {}, essai), message);
+    }
+    // rendu approché d'un message Discord : @here, mentions, dates <t:…>, **gras**, retours à la ligne
+    function apercu({ content, embeds: [e] }) {
+      const date = (ts, f) => { const d = new Date(ts * 1000);
+        return f === 'R' ? "à l'instant" : d.toLocaleString('fr-FR', f === 'F' ? { dateStyle: 'full', timeStyle: 'short' } : { dateStyle: 'long', timeStyle: 'short' }); };
+      const texte = t => (t ?? '').split(/(\*\*.+?\*\*|<@\d+>|<t:\d+:\w>|@here)/).map(m =>
+        m.startsWith('**') ? el('strong', { textContent: m.slice(2, -2) })
+        : m === '@here' || m.startsWith('<@') ? el('span', { className: 'd-mention', textContent: m === '@here' ? m : '@' + droits.pseudo })
+        : m.startsWith('<t:') ? el('span', { className: 'd-date', textContent: date(+m.split(':')[1], m.at(-2)) }) : m);
+      const couleur = '#' + e.color.toString(16).padStart(6, '0');
+      return el('div', { className: 'discord' }, el('p', {}, ...texte(content)),
+        el('div', { className: 'd-embed', style: `border-color: ${couleur}` },
+          el('div', {},
+            e.author && el('p', { className: 'd-auteur' }, el('img', { src: e.author.icon_url, alt: '' }), e.author.name),
+            e.title && el('p', { className: 'd-titre' }, ...texte(e.title)),
+            e.description && el('p', {}, ...texte(e.description)),
+            e.fields && el('div', { className: 'd-champs' }, ...e.fields.map(f => el('div', { className: f.inline ? 'd-ligne' : '' },
+              el('strong', { textContent: f.name }), el('br'), ...texte(f.value)))),
+            e.footer && el('p', { className: 'd-pied' }, e.footer.icon_url && el('img', { src: e.footer.icon_url, alt: '' }), e.footer.text)),
+          e.thumbnail && el('img', { className: 'd-vignette', src: e.thumbnail.url, alt: '' })));
     }
 
     // synchronisation immédiate, sans attendre le délai de 5 minutes (officiers)
@@ -508,6 +551,7 @@
             bouton("J'ai lu et j'approuve", 'discord', async () => {
               const { error } = await sb.from('signatures').insert({ version: CHARTE });
               if (error) return message.textContent = "L'enregistrement a échoué : " + error.message;
+              sb.functions.invoke('annoncer-signature'); // message du bot aux officiers ; la signature compte même s'il échoue
               chargerCharte();
             })), message);
     }

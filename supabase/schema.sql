@@ -361,12 +361,17 @@ language plpgsql security definer set search_path = '' as $$
 begin
   select discord_id, pseudo into new.joueur, new.nom from public.acces where user_id = auth.uid();
   new.le := now();
+  new.annoncee := false;
   return new;
 end $$;
 drop trigger if exists signer_charte on public.signatures;
 create trigger signer_charte before insert on public.signatures
   for each row execute function public.signer_charte();
 
+-- annoncee : annonce faite dans le salon des officiers (Edge Function annoncer-signature) ;
+-- les signatures antérieures à l'annonce sont considérées comme annoncées
+alter table public.signatures add column if not exists annoncee boolean not null default true;
+alter table public.signatures alter column annoncee set default false;
 alter table public.signatures enable row level security;
 -- tout compte présent sur le Discord (membre ou invité sans rôle) signe ; une signature ne se modifie pas,
 -- seul un officier la retire (signature indésirable : le Discord a une invitation publique)
@@ -430,3 +435,13 @@ from public.inscriptions
 where discord_id is not null and nom is not null and classe is not null
   and classe not in ('Absence', 'Late', 'Tentative', 'Bench')
 on conflict (joueur, nom) do nothing;
+
+-- ===== Réglages du site (onglet Gestion du site) =====
+-- annonce_signature : modèle du message du bot à chaque signature de la charte (sobre, proclamation, recrue, minimal)
+create table if not exists public.reglages (
+  cle    text primary key,
+  valeur text not null
+);
+alter table public.reglages enable row level security;
+drop policy if exists gerer on public.reglages;
+create policy gerer on public.reglages for all using ((select public.est_gestion())) with check ((select public.est_gestion()));
