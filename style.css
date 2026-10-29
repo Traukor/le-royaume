@@ -263,8 +263,8 @@ button.btn { background: transparent; color: var(--gold); font-size: 1rem; curso
 .modeles { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; text-align: left; }
 .modele { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--gold-dark); border-radius: 6px; cursor: pointer; font: 700 .9rem "Cinzel", serif; color: var(--gold); }
 .modele:has(input:checked) { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
-.discord { padding: 10px 12px; background: #313338; color: #dbdee1; border-radius: 4px; font: 400 .85rem/1.4 system-ui, sans-serif; white-space: pre-line; }
-.discord p { margin: 0 0 4px; }
+.d-message { padding: 10px 12px; background: #313338; color: #dbdee1; border-radius: 4px; font: 400 .85rem/1.4 system-ui, sans-serif; white-space: pre-line; }
+.d-message p { margin: 0 0 4px; }
 .d-embed { display: flex; gap: 12px; justify-content: space-between; margin-top: 4px; padding: 8px 12px 10px; background: #2b2d31; border-left: 4px solid; border-radius: 4px; }
 .d-auteur, .d-pied { display: flex; align-items: center; gap: 6px; font-size: .8rem; }
 .d-pied { margin-top: 8px !important; color: #b5bac1; font-size: .72rem; }

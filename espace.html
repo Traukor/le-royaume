@@ -196,7 +196,7 @@
         : m === '@here' || m.startsWith('<@') ? el('span', { className: 'd-mention', textContent: m === '@here' ? m : '@' + droits.pseudo })
         : m.startsWith('<t:') ? el('span', { className: 'd-date', textContent: date(+m.split(':')[1], m.at(-2)) }) : m);
       const couleur = '#' + e.color.toString(16).padStart(6, '0');
-      return el('div', { className: 'discord' }, el('p', {}, ...texte(content)),
+      return el('div', { className: 'd-message' }, el('p', {}, ...texte(content)),
         el('div', { className: 'd-embed', style: `border-color: ${couleur}` },
           el('div', {},
             e.author && el('p', { className: 'd-auteur' }, el('img', { src: e.author.icon_url, alt: '' }), e.author.name),
