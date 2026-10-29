@@ -24,6 +24,7 @@
     <a href="index.html">Accueil</a>
     <a href="charte.html" aria-current="page">Charte</a>
     <a href="index.html#rejoindre">Nous rejoindre</a>
+    <a href="espace.html">Espace membre</a>
   </nav>
 
   <main class="charte">
@@ -81,9 +82,23 @@
     <p>On ne peut pas plaire à tout le monde, et c'est OK. Ce qui compte, c'est que ceux qui sont dans Le Royaume y restent par choix et qu'ils participent (à leur échelle) au bon esprit qui est un peu la marque de fabrique de notre guilde.</p>
     <p><strong>Point important :</strong> le GM se donne le droit de retirer des effectifs de la guilde toute personne qu'il estime pouvoir nuire au bien-être général ou à l'image de la guilde.</p>
 
+    <h2>Ils ont signé la charte</h2>
+    <p id="signataires">Chargement…</p>
+    <p>Pour la signer, rendez-vous dans l'<a href="espace.html">Espace membre</a> (connexion avec Discord).</p>
+
     <p style="text-align:center"><a class="btn discord" href="https://discord.gg/4EQVVj8aSc">Rejoindre le Discord</a></p>
   </main>
 
-  <footer>Le Royaume — guilde francophone sur World of Warcraft Forever.<br>World of Warcraft est une marque de Blizzard Entertainment.<br><a href="espace.html">Espace guilde</a></footer>
+  <footer>Le Royaume — guilde francophone sur World of Warcraft Forever.<br>World of Warcraft est une marque de Blizzard Entertainment.</footer>
+  <script>
+    // signataires de la version en cours (pseudos Discord), lus sans connexion avec la clé publique du projet
+    const cle = 'sb_publishable_BJwMSdlBLfltRGA-GCELrQ_MbyCM1x_';
+    const zone = document.getElementById('signataires');
+    fetch('https://gobvfbwuesskhrgcrzjd.supabase.co/rest/v1/rpc/signataires', {
+      method: 'POST', headers: { apikey: cle, 'Content-Type': 'application/json' }, body: '{}',
+    }).then(r => r.ok ? r.json() : Promise.reject())
+      .then(noms => zone.textContent = noms.length ? noms.join(', ') + '.' : 'Personne pour le moment.')
+      .catch(() => zone.textContent = 'Liste indisponible pour le moment.');
+  </script>
 </body>
 </html>

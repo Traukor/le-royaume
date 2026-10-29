@@ -1,5 +1,5 @@
 // Edge Function Supabase « verifier-role »
-// Dit si l'utilisateur connecté (via Discord) possède un des rôles autorisés sur le serveur Discord de la guilde.
+// Dit si l'utilisateur connecté (via Discord) est sur le serveur Discord de la guilde et avec quels rôles autorisés.
 // La vérification se fait ici, côté serveur, avec le bot de la guilde : impossible à falsifier depuis le navigateur.
 //
 // Secrets à définir dans Supabase (Edge Functions > Secrets) :
@@ -52,6 +52,7 @@ Deno.serve(async (req) => {
     gestion,
     // être sur le serveur ne suffit pas (invitation publique) : il faut un rôle de la guilde
     membre: autorise || aUnRole(roles("DISCORD_MEMBRE_ROLE_IDS")),
+    serveur: !!membre, // sur le serveur, même sans rôle : invité (signature de la charte seulement)
     pseudo: membre ? membre.nick ?? membre.user.global_name ?? membre.user.username : null,
   };
 
@@ -59,7 +60,7 @@ Deno.serve(async (req) => {
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   const { error: e } = await admin.from("acces").upsert({
     user_id: user.id, discord_id: discordId, pseudo: resultat.pseudo,
-    membre: resultat.membre, officier: resultat.autorise, maj: new Date().toISOString(),
+    membre: resultat.membre, officier: resultat.autorise, serveur: resultat.serveur, gestion, maj: new Date().toISOString(),
   });
   if (e) return json({ erreur: `enregistrement des droits : ${e.message}` }, 500);
   return json(resultat);

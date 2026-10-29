@@ -10,6 +10,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const ORIGINES = ["https://le-royaume.fr"];
 const RH = "https://raid-helper.dev/api/v4"; // v2 et v3 ont été retirées
+const BOUTONS = ["Absence", "Late", "Tentative", "Bench"]; // boutons Raid-Helper, pas des classes
 const FENETRE_JOURS = 14; // sorties passées encore resynchronisées (inscriptions modifiées après coup)
 
 Deno.serve(async (req) => {
@@ -53,6 +54,7 @@ Deno.serve(async (req) => {
   }
 
   const maj = new Date().toISOString();
+  const personnages = new Map(); // créés automatiquement : pseudo + classe + spé + rôle de l'inscription
   for (const ev of evenements) {
     // inscrits fournis par la liste (IncludeSignUps) ; sinon, lecture de l'événement seul
     let signUps = ev.signUps;
@@ -72,6 +74,12 @@ Deno.serve(async (req) => {
     // une ligne par joueur (la dernière inscription l'emporte)
     const parJoueur = new Map();
     for (const s of signUps ?? []) {
+      if (s.userId && s.name && s.className && !BOUTONS.includes(s.className)) {
+        // rôle omis s'il redit la classe (classe « Tank », rôle « Tanks »)
+        const role = s.roleName && s.roleName.replace(/s$/, "") !== s.className ? s.roleName : null;
+        const nom = [s.name, s.className, s.specName, role].filter(Boolean).join(" ");
+        personnages.set(s.userId + "|" + nom, { joueur: s.userId, proprietaire: s.name, nom, classe: s.className, spe: s.specName });
+      }
       parJoueur.set(s.userId, {
         sortie_id: ev.id, discord_id: s.userId, nom: s.name, classe: s.className, spe: s.specName,
         role: s.roleName, position: s.position, inscrit_le: s.entryTime ? new Date(s.entryTime * 1000).toISOString() : null,
@@ -84,6 +92,9 @@ Deno.serve(async (req) => {
       .not("discord_id", "in", `(${[...parJoueur.keys(), "0"].join(",")})`);
     if (e3) return json({ erreur: e3.message }, 500);
   }
+  // un personnage existant n'est pas modifié (renommage d'un pseudo Discord : nouveau personnage)
+  const { error: e5 } = await admin.from("personnages").upsert([...personnages.values()], { onConflict: "joueur,nom", ignoreDuplicates: true });
+  if (e5) return json({ erreur: e5.message }, 500);
   const { error: e4 } = await admin.from("synchro").upsert({ id: 1, le: maj });
   if (e4) return json({ erreur: e4.message }, 500);
   return json({ synchro: true, sorties: evenements.length });

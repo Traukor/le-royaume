@@ -13,6 +13,10 @@ create table if not exists public.acces (
   officier   boolean not null,
   maj        timestamptz not null default now()
 );
+-- serveur : présent sur le Discord, même sans rôle (invité : peut seulement signer la charte) ;
+-- gestion : rôle de gestion du site
+alter table public.acces add column if not exists serveur boolean not null default false;
+alter table public.acces add column if not exists gestion boolean not null default false;
 
 -- Sorties importées de Raid-Helper (id = identifiant de l'événement Raid-Helper).
 create table if not exists public.sorties (
@@ -66,6 +70,14 @@ create table if not exists public.appel_journal (
 create or replace function public.est_membre() returns boolean
 language sql stable security definer set search_path = '' as $$
   select coalesce((select membre from public.acces where user_id = auth.uid() and maj > now() - interval '1 day'), false)
+$$;
+create or replace function public.sur_serveur() returns boolean
+language sql stable security definer set search_path = '' as $$
+  select coalesce((select serveur from public.acces where user_id = auth.uid() and maj > now() - interval '1 day'), false)
+$$;
+create or replace function public.est_gestion() returns boolean
+language sql stable security definer set search_path = '' as $$
+  select coalesce((select gestion from public.acces where user_id = auth.uid() and maj > now() - interval '1 day'), false)
 $$;
 create or replace function public.est_officier() returns boolean
 language sql stable security definer set search_path = '' as $$
@@ -228,6 +240,8 @@ create unique index if not exists un_principal on public.personnages (joueur) wh
 create or replace function public.proprietaire_personnage() returns trigger
 language plpgsql security definer set search_path = '' as $$
 begin
+  -- sans utilisateur : création automatique par la synchronisation Raid-Helper (clé service), valeurs gardées
+  if auth.uid() is null then return new; end if;
   select discord_id, pseudo into new.joueur, new.proprietaire from public.acces where user_id = auth.uid();
   return new;
 end $$;
@@ -283,7 +297,10 @@ create policy ecrire on public.personnages for all
   with check ((select public.est_membre()) and joueur = (select public.mon_discord()));
 
 drop policy if exists lire on public.loots;
-create policy lire on public.loots for select using ((select public.est_officier()) or joueur = (select public.mon_discord()));
+-- un membre lit ses loots et le butin des soirées où il était en raid (Présent ou Retard ; le banc ne compte pas)
+create policy lire on public.loots for select using ((select public.est_officier()) or ((select public.est_membre()) and (
+  joueur = (select public.mon_discord()) or exists (select 1 from public.appel a where a.sortie_id = loots.sortie_id
+    and a.joueur = (select public.mon_discord()) and a.etat in ('present', 'retard')))));
 drop policy if exists ecrire on public.loots;
 create policy ecrire on public.loots for all using ((select public.est_officier())) with check ((select public.est_officier()));
 
@@ -351,12 +368,29 @@ create trigger signer_charte before insert on public.signatures
   for each row execute function public.signer_charte();
 
 alter table public.signatures enable row level security;
--- une signature ne se modifie ni ne se retire : seules la lecture et l'ajout sont permis
+-- tout compte présent sur le Discord (membre ou invité sans rôle) signe ; une signature ne se modifie pas,
+-- seul un officier la retire (signature indésirable : le Discord a une invitation publique)
 drop policy if exists lire on public.signatures;
 create policy lire on public.signatures for select
-  using ((select public.est_officier()) or ((select public.est_membre()) and joueur = (select public.mon_discord())));
+  using ((select public.est_officier()) or ((select public.sur_serveur()) and joueur = (select public.mon_discord())));
 drop policy if exists signer on public.signatures;
-create policy signer on public.signatures for insert with check ((select public.est_membre()));
+create policy signer on public.signatures for insert with check ((select public.sur_serveur()));
+drop policy if exists retirer on public.signatures;
+create policy retirer on public.signatures for delete using ((select public.est_officier()));
+
+-- Signataires de la dernière version, affichés publiquement sous la charte (charte.html, sans connexion).
+create or replace function public.signataires() returns setof text
+language sql stable security definer set search_path = '' as $$
+  select nom from public.signatures where version = (select max(version) from public.signatures) order by lower(nom)
+$$;
+grant execute on function public.signataires() to anon;
+
+-- Comptes connus de l'espace (onglet Gestion du site).
+create or replace function public.comptes()
+returns table (pseudo text, serveur boolean, membre boolean, officier boolean, gestion boolean, maj timestamptz)
+language sql stable security definer set search_path = '' as $$
+  select pseudo, serveur, membre, officier, gestion, maj from public.acces where public.est_gestion() order by maj desc
+$$;
 
 -- Membres pas encore signataires d'une version (officiers). Limité aux comptes déjà connectés à l'espace :
 -- la liste complète viendra du roster (lot 5).
@@ -385,3 +419,14 @@ begin
   update public.loots set joueur = nouveau, nom = n where joueur = ancien;
   perform set_config('royaume.rattachement', '', true);
 end $$;
+
+-- ===== Personnages créés automatiquement (pseudo + classe + spé + rôle de l'inscription Raid-Helper) =====
+-- La synchronisation crée ceux des nouvelles inscriptions ; ici, rattrapage des inscriptions déjà importées
+-- (même nom que dans synchro-raidhelper : rôle omis s'il redit la classe).
+insert into public.personnages (joueur, proprietaire, nom, classe, spe)
+select discord_id, nom,
+       concat_ws(' ', nom, classe, spe, case when regexp_replace(role, 's$', '') = classe then null else role end), classe, spe
+from public.inscriptions
+where discord_id is not null and nom is not null and classe is not null
+  and classe not in ('Absence', 'Late', 'Tentative', 'Bench')
+on conflict (joueur, nom) do nothing;
