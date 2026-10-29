@@ -459,7 +459,7 @@
         })), message);
 
       ouvrir(...haut, rattacher,
-        tableau(['Période', 'Soirées', 'Dispo', 'En raid', 'Mis au banc', 'Retard', 'Retard moyen (min)', 'Absent prévenu', 'Absent'],
+        tableau(['Période', 'Soirées inscrit', 'Dispo', 'En raid', 'Mis au banc', 'Retard', 'Retard moyen (min)', 'Absent prévenu', 'Absent'],
           periode('3 derniers mois', trois), periode('Depuis le début', tout)),
         el('h3', { textContent: fiche ? 'Soirées' : 'Mes soirées' }),
         soirees.length ? tableau(['Date', 'Sortie', 'Appel'], ...soirees.map(a => el('tr', {}, ...[quand(a.sorties.debut), a.sorties.titre || 'Sortie',
@@ -556,12 +556,12 @@
       if (choix === '3s') d.setDate(d.getDate() - 21); else if (choix === '3m') d.setMonth(d.getMonth() - 3); else return date;
       return jourParis(d);
     };
-    const COLONNES = [['nom', 'Joueur'], ['toutes', 'Soirées'], ['dispo', 'Dispo'], ['presents', 'En raid'], ['presence', 'En raid %'],
+    const COLONNES = [['nom', 'Joueur'], ['toutes', 'Soirées inscrit'], ['dispo', 'Dispo'], ['presents', 'En raid'], ['presence', 'En raid %'],
       ['bancs', 'Mis au banc'], ['retard', 'Retard %'], ['retard_moyen', 'Retard moyen (min)'], ['absents_prevenus', 'Absent prévenu'], ['absents', 'Absent'],
       ['inscrits', 'Inscrit'], ['inscrits_valides', 'Inscrit et validé'], ['inscrits_presents', 'Inscrit et en raid'], ['inscrits_bancs', 'Inscrit et mis au banc'],
       ['loots', 'Loots'], ['loots_soiree', 'Loots / soirée en raid'], ['dernier', 'Dernier loot']];
 
-    // colonnes de présence : Soirées (toutes les soirées appelées), Dispo (Présent, Retard ou Banc), En raid (Présent ou Retard,
+    // colonnes de présence : Soirées inscrit (toutes les soirées appelées), Dispo (Présent, Retard ou Banc), En raid (Présent ou Retard,
     // taux sur Dispo), Mis au banc ; stats_joueurs compte ses « soirees » hors banc
     const completer = r => ({ ...r, toutes: (r.soirees ?? 0) + (r.bancs ?? 0), dispo: (r.presents ?? 0) + (r.bancs ?? 0),
       presents_seuls: r.presents - r.retards });
@@ -695,7 +695,7 @@
 
         // [titre, valeur(stats, joueur)] ; sans valeur : titre de section
         const LIGNES = [['Présence'],
-          ['Soirées', r => r.toutes],
+          ['Soirées inscrit', r => r.toutes],
           ['Dispo', r => r.dispo],
           ['En raid', r => { const v = pourcent(r.presents, r.dispo); return v == null ? '–' : [`${r.presents} · ${v} % `, barre(v)]; }],
           ['Mis au banc', r => r.bancs],
