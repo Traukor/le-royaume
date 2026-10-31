@@ -135,11 +135,14 @@ alter table public.inscriptions  enable row level security;
 alter table public.appel         enable row level security;
 alter table public.appel_journal enable row level security;
 
--- Date de la dernière synchronisation Raid-Helper réussie (délai de 5 minutes entre deux synchronisations).
+-- Date de la dernière synchronisation réussie (délai de 5 minutes entre deux synchronisations) :
+-- ligne 1 Raid-Helper, ligne 2 roster (lot 5).
 create table if not exists public.synchro (
-  id int primary key check (id = 1),
+  id int primary key check (id in (1, 2)),
   le timestamptz not null
 );
+alter table public.synchro drop constraint if exists synchro_id_check;
+alter table public.synchro add constraint synchro_id_check check (id in (1, 2));
 alter table public.synchro enable row level security;
 
 -- acces et synchro : aucune règle, seul le serveur (clé service) y touche.
@@ -416,24 +419,15 @@ language sql stable security definer set search_path = '' as $$
   select pseudo, serveur, membre, officier, gestion, maj from public.acces where public.est_gestion() order by maj desc
 $$;
 
--- Membres pas encore signataires (officiers et gestion du site). Limité aux comptes déjà connectés à l'espace :
--- la liste complète viendra du roster (lot 5).
-drop function if exists public.non_signataires(text);
-create or replace function public.non_signataires() returns setof text
-language sql stable security definer set search_path = '' as $$
-  select a.pseudo from public.acces a
-  where (public.est_officier() or public.est_gestion()) and a.membre
-    and not exists (select 1 from public.signatures s where s.joueur = a.discord_id)
-  order by a.pseudo
-$$;
-
 -- ===== Rattachement d'un joueur ajouté à la main (« nom:… ») à son compte Discord (officiers) =====
--- Son appel et ses loots passent sous l'identifiant Discord ; une soirée où les deux figurent garde la ligne Discord.
+-- Son appel et ses loots passent sous l'identifiant Discord (joueur du roster, ou inscrit au moins une fois sur
+-- Raid-Helper) ; une soirée où les deux figurent garde la ligne Discord.
 -- Les changements d'appel sont journalisés (auteur = l'officier) ; les loots gardent leur auteur et leur date.
 create or replace function public.rattacher(ancien text, nouveau text) returns void
 language plpgsql security definer set search_path = '' as $$
 declare
-  n text := (select nom from public.inscriptions where discord_id = nouveau order by inscrit_le desc nulls last limit 1);
+  n text := coalesce((select pseudo from public.roster where joueur = nouveau),
+    (select nom from public.inscriptions where discord_id = nouveau order by inscrit_le desc nulls last limit 1));
 begin
   if not public.est_officier() then raise exception 'réservé aux officiers'; end if;
   if ancien not like 'nom:%' or n is null then raise exception 'rattachement impossible'; end if;
@@ -465,3 +459,28 @@ create table if not exists public.reglages (
 alter table public.reglages enable row level security;
 drop policy if exists gerer on public.reglages;
 create policy gerer on public.reglages for all using ((select public.est_gestion())) with check ((select public.est_gestion()));
+
+-- ===== Lot 5 : roster et recrues =====
+
+-- Roster : membres du serveur Discord qui ont un rôle de la guilde, avec leur grade.
+-- Rempli uniquement par l'Edge Function synchro-roster (bot, clé service) ; lisible par les membres.
+create table if not exists public.roster (
+  joueur  text primary key,  -- identifiant Discord
+  pseudo  text not null,
+  grade   text not null check (grade in ('gm', 'officier', 'membre', 'postulant')),
+  arrivee timestamptz,       -- arrivée sur le serveur Discord
+  maj     timestamptz not null default now()
+);
+alter table public.roster enable row level security;
+drop policy if exists lire on public.roster;
+create policy lire on public.roster for select using ((select public.est_membre()));
+
+-- Joueurs du roster pas encore signataires de la charte (officiers et gestion du site).
+drop function if exists public.non_signataires(text);
+create or replace function public.non_signataires() returns setof text
+language sql stable security definer set search_path = '' as $$
+  select r.pseudo from public.roster r
+  where (public.est_officier() or public.est_gestion())
+    and not exists (select 1 from public.signatures s where s.joueur = r.joueur)
+  order by lower(r.pseudo)
+$$;

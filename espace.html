@@ -101,6 +101,7 @@
       afficher(`Bienvenue ${data.pseudo}${data.gestion ? ', accès gestion du site confirmé' : data.autorise ? ', accès officier confirmé' : ''}.`, bouton('Se déconnecter', '', deconnexion));
 
       calendrier(); // tout de suite depuis la base ; redessiné si la synchronisation apporte du nouveau
+      sb.functions.invoke('synchro-roster'); // roster (grades Discord), en parallèle ; « Actualiser » signale une panne
       const synchro = await sb.functions.invoke('synchro-raidhelper');
       // le message du serveur (ex. « Raid-Helper a répondu 401 ») aide à comprendre une panne
       const detail = synchro.error && await synchro.error.context?.json?.().then(d => d.erreur, () => null);
@@ -235,8 +236,11 @@
     async function actualiser(e) {
       e.target.disabled = true;
       e.target.textContent = 'Actualisation…';
-      const { error } = await sb.functions.invoke('synchro-raidhelper', { body: { forcer: true } });
-      calendrier(error ? 'Actualisation impossible pour le moment.' : null);
+      const [{ error }, { error: e2 }] = await Promise.all(['synchro-raidhelper', 'synchro-roster']
+        .map(f => sb.functions.invoke(f, { body: { forcer: true } })));
+      const detail = e2 && await e2.context?.json?.().then(d => d.erreur, () => null);
+      calendrier(error ? 'Actualisation impossible pour le moment.'
+        : e2 ? `Roster Discord non actualisé${detail ? ' (' + detail + ')' : ''}.` : null);
     }
 
     // Raid-Helper range les absents, retards, incertains et remplaçants comme des « classes »
@@ -258,7 +262,7 @@
     async function sortie(id, onglet) {
       const rien = { data: [] };
       const [{ data: s }, { data: inscrits }, { data: appel }, { data: compo }, { data: reglage },
-             { data: lootsLus }, { data: persos }, { data: stats3m }, { data: journal }] = await Promise.all([
+             { data: lootsLus }, { data: persos }, { data: stats3m }, { data: journal }, { data: rosterLu }] = await Promise.all([
         sb.from('sorties').select('*').eq('id', id).single(),
         sb.from('inscriptions').select('*').eq('sortie_id', id).order('position'),
         officier ? sb.from('appel').select('*').eq('sortie_id', id) : rien,
@@ -268,6 +272,7 @@
         officier ? tout(() => sb.from('personnages').select('*').order('proprietaire').order('nom').order('joueur')) : rien,
         officier ? sb.rpc('stats_joueurs', { depuis: debutDe('3m') + 'T00:00:00' }) : rien,
         officier ? sb.from('appel_journal').select('*').eq('sortie_id', id).order('modifie_le', { ascending: false }) : rien,
+        officier ? sb.from('roster').select('joueur, pseudo').order('pseudo') : rien,
       ]);
       if (!s) return;
       const loots = lootsLus ?? [];
@@ -342,9 +347,14 @@
         for (const a of appel) if (!inscrits.some(i => i.discord_id === a.joueur)) ligne(a.joueur, a.nom, 'non inscrit', a.etat, a.retard_min, true);
       }
 
+      const roster = rosterLu ?? []; // table absente ou illisible : nom tapé seulement
+      // joueur non inscrit : choisi dans le roster (son compte Discord), sinon nom tapé (« nom:… », rattachable plus tard)
+      const proposes = el('datalist', { id: 'roster-' + id }, ...roster.map(m => el('option', { value: m.pseudo })));
       const nouveau = el('input', { type: 'text', placeholder: 'Joueur non inscrit' });
+      nouveau.setAttribute('list', proposes.id); // list : attribut seulement (propriété en lecture seule)
       const ajouter = bouton('Ajouter', '', () => {
-        const nom = nouveau.value.trim(), joueur = 'nom:' + nom.toLowerCase();
+        const nom = nouveau.value.trim(), membre = roster.find(m => m.pseudo.toLowerCase() === nom.toLowerCase());
+        const joueur = membre ? membre.joueur : 'nom:' + nom.toLowerCase();
         // un même joueur deux fois ferait échouer tout l'enregistrement
         if (nom && ![...lignes.querySelectorAll('.ligne')].some(f => f.dataset.joueur === joueur)) {
           ligne(joueur, nom, 'non inscrit', 'present', null, true);
@@ -445,7 +455,7 @@
       // onglets : la composition avant la soirée, l'appel une fois commencée, puis les loots
       const panneaux = {
         composition: el('div', {}, message, composition),
-        appel: el('div', {}, etatAppel, lignes, el('p', {}, nouveau, ajouter), enregistrer, historiqueAppel),
+        appel: el('div', {}, etatAppel, lignes, el('p', {}, nouveau, proposes, ' ', ajouter), enregistrer, historiqueAppel),
         loots: el('div', { className: 'loots' }, loots.length ? listeLoots : el('p', { className: 'vide', textContent: 'Aucun loot saisi pour cette sortie.' }),
           el('h3', { textContent: 'Aide à la décision' }), candidats.length ? aide : el('p', { className: 'vide', textContent: 'Aucun présent.' }),
           el('h3', { textContent: 'Nouveau loot' }),
@@ -499,7 +509,7 @@
         taux(new Date(debutDe('3m') + 'T00:00').toISOString()), taux(null),
         sb.from('appel').select('etat, retard_min, sorties(titre, debut)').eq('joueur', joueur),
         fiche ? sb.from('loots').select('*, sorties(titre)').eq('joueur', joueur).order('le', { ascending: false }) : { data: [] },
-        joueur.startsWith('nom:') ? tout(() => sb.from('inscriptions').select('discord_id, nom').order('sortie_id').order('discord_id')) : { data: [] }]);
+        joueur.startsWith('nom:') ? sb.from('roster').select('joueur, pseudo') : { data: [] }]);
       if (error) return ouvrir(...haut, el('p', { textContent: 'Suivi indisponible : ' + error.message }));
       const pct = (a, b) => b ? Math.round(100 * a / b) + ' %' : null;
       const periode = (titre, r) => { r = completer(r ?? {}); return el('tr', {}, ...[titre, r.toutes, r.dispo,
@@ -510,12 +520,12 @@
         el('thead', {}, el('tr', {}, ...titres.map(t => el('th', { textContent: t })))), el('tbody', {}, ...lignes)));
 
       // joueur ajouté à la main lors de l'appel : son appel et ses loots passent sur le compte Discord choisi
-      const connus = new Map((inscr ?? []).map(i => [i.discord_id, i.nom]));
-      const choix = el('select', { ariaLabel: 'Joueur inscrit' }, el('option', { value: '', textContent: 'Choisir le joueur…' }),
+      const connus = new Map((inscr ?? []).map(m => [m.joueur, m.pseudo]));
+      const choix = el('select', { ariaLabel: 'Joueur du roster' }, el('option', { value: '', textContent: 'Choisir le joueur…' }),
         ...[...connus].sort((a, b) => a[1].localeCompare(b[1], 'fr')).map(([id, n]) => el('option', { value: id, textContent: n })));
       const message = el('p', { className: 'vide' });
-      const rattacher = connus.size > 0 && el('section', {}, el('h3', { textContent: 'Rattacher à un joueur inscrit' }),
-        el('p', { className: 'vide', textContent: "Ajouté à la main lors de l'appel : son appel et ses loots passent sur le compte Discord choisi (inscrit au moins une fois sur Raid-Helper)." }),
+      const rattacher = connus.size > 0 && el('section', {}, el('h3', { textContent: 'Rattacher à un joueur du roster' }),
+        el('p', { className: 'vide', textContent: "Ajouté à la main lors de l'appel : son appel et ses loots passent sur le compte Discord choisi (joueur de la guilde sur Discord)." }),
         el('p', {}, choix, ' ', bouton('Rattacher', '', async () => {
           if (!choix.value) return message.textContent = 'Choisissez le joueur.';
           const cible = connus.get(choix.value);
@@ -568,7 +578,7 @@
             gere && el('button', { className: 'retirer', type: 'button', textContent: '×', title: 'Retirer la signature', ariaLabel: 'Retirer la signature de ' + g.nom, onclick: retirer(g) })))) : '',
           message,
           el('p', { textContent: manquants.length ? 'Pas encore signée par : ' + manquants.join(', ') + '.' : 'Signée par tous les membres connus.' }),
-          el('p', { className: 'vide', textContent: "Seuls les membres déjà connectés à l'espace sont connus du site." }));
+          el('p', { className: 'vide', textContent: 'Joueurs de la guilde selon leurs rôles Discord, membres comme postulants.' }));
       }
       const { data, error } = await sb.from('signatures').select('le, annoncee').eq('joueur', moi).maybeSingle();
       if (n !== demandeCharte) return;
