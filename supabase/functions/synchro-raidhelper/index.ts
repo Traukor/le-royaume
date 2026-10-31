@@ -32,7 +32,7 @@ Deno.serve(async (req) => {
   if (!membre) return json({ erreur: "réservé aux membres" }, 403);
 
   // { forcer: true } (bouton « Actualiser », officiers seulement) ignore le délai de 5 minutes
-  const { forcer } = await req.json().catch(() => ({}));
+  const { forcer } = (await req.json().catch(() => null)) ?? {};
   const { data: officier } = forcer ? await utilisateur.rpc("est_officier") : { data: false };
 
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -74,7 +74,8 @@ Deno.serve(async (req) => {
     // une ligne par joueur (la dernière inscription l'emporte)
     const parJoueur = new Map();
     for (const s of signUps ?? []) {
-      if (s.userId && s.name && s.className && !BOUTONS.includes(s.className)) {
+      if (!s.userId) continue; // inscription ajoutée à la main sans compte Discord : pas de joueur à rattacher
+      if (s.name && s.className && !BOUTONS.includes(s.className)) {
         // rôle omis s'il redit la classe (classe « Tank », rôle « Tanks »)
         const role = s.roleName && s.roleName.replace(/s$/, "") !== s.className ? s.roleName : null;
         const nom = [s.name, s.className, s.specName, role].filter(Boolean).join(" ");

@@ -15,7 +15,9 @@ const SITE = "https://le-royaume.fr";
 const LOGO = `${SITE}/img/logo-360.png`;
 const OR = 0xd4af37, VERT = 0x57f287;
 
-type Signature = { id: string; pseudo: string; avatar: string; ts: number; invite: boolean };
+// nom : pseudo échappé pour le Markdown Discord (un pseudo choisi par le joueur ne devient ni lien ni mise en forme)
+type Signature = { id: string; pseudo: string; nom: string; avatar: string; ts: number; invite: boolean };
+const echapper = (t: string) => t.replace(/[\\*_~`|>\[\]()<#:-]/g, "\\$&");
 
 // les 4 modèles : contenu (avec @here, hors embed : un @here dans un embed ne notifie personne) et embed
 const MODELES: Record<string, (s: Signature) => { content: string; embeds: unknown[] }> = {
@@ -23,7 +25,7 @@ const MODELES: Record<string, (s: Signature) => { content: string; embeds: unkno
     content: "@here Nouvelle signature de la charte !",
     embeds: [{
       color: OR, author: { name: s.pseudo, icon_url: s.avatar }, title: "📜 Charte signée", url: `${SITE}/charte.html`,
-      description: `**${s.pseudo}** vient de lire et d'approuver la charte du Royaume.`,
+      description: `**${s.nom}** vient de lire et d'approuver la charte du Royaume.`,
       fields: [{ name: "Joueur", value: `<@${s.id}>`, inline: true }, { name: "Signée le", value: `<t:${s.ts}:F>`, inline: true }],
       footer: { text: "Le Royaume · Espace membre", icon_url: LOGO },
     }],
@@ -32,7 +34,7 @@ const MODELES: Record<string, (s: Signature) => { content: string; embeds: unkno
     content: "@here Oyez, oyez !",
     embeds: [{
       color: OR, title: "👑 Proclamation royale", thumbnail: { url: LOGO },
-      description: `Par la présente, **${s.pseudo}** (<@${s.id}>) a apposé son sceau sur la Charte du Royaume.\n\n` +
+      description: `Par la présente, **${s.nom}** (<@${s.id}>) a apposé son sceau sur la Charte du Royaume.\n\n` +
         (s.invite ? "Officiers, un nouvel aspirant attend votre accueil !" : "Que son engagement soit salué !"),
       fields: [{ name: "🖋️ Sceau apposé le", value: `<t:${s.ts}:F>` }],
       footer: { text: "Le Royaume · Charte de la guilde", icon_url: LOGO },
@@ -43,7 +45,7 @@ const MODELES: Record<string, (s: Signature) => { content: string; embeds: unkno
     embeds: [{
       color: s.invite ? VERT : OR, title: "✅ Nouvelle signature", thumbnail: { url: s.avatar },
       fields: [
-        { name: "Joueur", value: `**${s.pseudo}** (<@${s.id}>)` },
+        { name: "Joueur", value: `**${s.nom}** (<@${s.id}>)` },
         { name: "Signée le", value: `<t:${s.ts}:f> (<t:${s.ts}:R>)` },
         { name: "Statut", value: s.invite ? "Invité (aucun rôle de la guilde)" : "Déjà membre de la guilde" },
         ...(s.invite ? [{ name: "➡️ À faire", value: "Donner le rôle Postulant et inviter en guilde." }] : []),
@@ -53,7 +55,7 @@ const MODELES: Record<string, (s: Signature) => { content: string; embeds: unkno
   }),
   minimal: (s) => ({
     content: "@here",
-    embeds: [{ color: OR, description: `📜 **${s.pseudo}** (<@${s.id}>) a signé la charte le <t:${s.ts}:F>.` }],
+    embeds: [{ color: OR, description: `📜 **${s.nom}** (<@${s.id}>) a signé la charte le <t:${s.ts}:F>.` }],
   }),
 };
 
@@ -73,7 +75,7 @@ Deno.serve(async (req) => {
   });
   const { data: { user } } = await utilisateur.auth.getUser();
   if (!user) return json({ erreur: "non connecté" }, 401);
-  const { apercu, essai } = await req.json().catch(() => ({}));
+  const { apercu, essai } = (await req.json().catch(() => null)) ?? {};
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   const { data: compte } = await admin.from("acces").select("discord_id, pseudo, membre").eq("user_id", user.id).single();
   if (!compte) return json({ erreur: "compte inconnu" }, 403);
@@ -85,7 +87,8 @@ Deno.serve(async (req) => {
     const avatar = profil?.avatar
       ? `https://cdn.discordapp.com/avatars/${compte.discord_id}/${profil.avatar}.png`
       : "https://cdn.discordapp.com/embed/avatars/0.png";
-    return { id: compte.discord_id, pseudo: compte.pseudo ?? "?", avatar, ts: Math.floor(Date.parse(le) / 1000), invite: !compte.membre };
+    const pseudo = compte.pseudo ?? "?";
+    return { id: compte.discord_id, pseudo, nom: echapper(pseudo), avatar, ts: Math.floor(Date.parse(le) / 1000), invite: !compte.membre };
   };
   const connu = (k: unknown): k is string => typeof k === "string" && Object.hasOwn(MODELES, k); // pas « toString », « __proto__ »…
   const envoyer = (message: unknown) => fetch(`https://discord.com/api/v10/channels/${SALON}/messages`, {
@@ -110,7 +113,9 @@ Deno.serve(async (req) => {
   const { data: reglage } = await admin.from("reglages").select("valeur").eq("cle", "annonce_signature").maybeSingle();
   const choisi = reglage?.valeur;
   const modele = connu(choisi) ? MODELES[choisi] : MODELES.sobre;
-  const r = await envoyer({ ...modele(await signature(ligne.le)), allowed_mentions: { parse: ["everyone"] } });
+  // une panne réseau lève une exception au lieu d'une réponse en erreur : même traitement
+  const r = await signature(ligne.le).then((s) => envoyer({ ...modele(s), allowed_mentions: { parse: ["everyone"] } }))
+    .catch(() => ({ ok: false, status: "injoignable" }));
   if (!r.ok) { // échec : la signature redevient « non annoncée », un nouvel appel la renverra
     await admin.from("signatures").update({ annoncee: false }).eq("joueur", compte.discord_id);
     return json({ erreur: `Discord a répondu ${r.status}` }, 502);

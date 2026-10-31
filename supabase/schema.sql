@@ -96,13 +96,26 @@ language plpgsql security definer set search_path = '' as $$
 begin
   new.modifie_par := (select pseudo from public.acces where user_id = auth.uid());
   new.modifie_le := now();
-  insert into public.appel_journal (sortie_id, joueur, etat, retard_min, modifie_par, modifie_le)
-  values (new.sortie_id, new.joueur, new.etat, new.retard_min, new.modifie_par, new.modifie_le);
   return new;
 end $$;
 drop trigger if exists tracer_appel on public.appel;
 create trigger tracer_appel before insert or update on public.appel
   for each row execute function public.tracer_appel();
+-- journal en AFTER : un upsert qui corrige une ligne déclenche les deux BEFORE (insert puis update), un seul AFTER
+create or replace function public.journaliser_appel() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  insert into public.appel_journal (sortie_id, joueur, etat, retard_min, modifie_par, modifie_le)
+  values (new.sortie_id, new.joueur, new.etat, new.retard_min, new.modifie_par, new.modifie_le);
+  return null;
+end $$;
+drop trigger if exists journaliser_appel on public.appel;
+create trigger journaliser_appel after insert or update on public.appel
+  for each row execute function public.journaliser_appel();
+-- corrections journalisées deux fois avant ce correctif : le doublon (même instant) est retiré
+delete from public.appel_journal a using public.appel_journal b
+  where a.id > b.id and (a.sortie_id, a.joueur, a.etat, a.modifie_par, a.modifie_le) is not distinct from (b.sortie_id, b.joueur, b.etat, b.modifie_par, b.modifie_le)
+    and a.retard_min is not distinct from b.retard_min;
 
 -- Retrait d'un joueur de l'appel (non inscrit ajouté par erreur) : journalisé avec l'état « retire ».
 create or replace function public.tracer_retrait() returns trigger

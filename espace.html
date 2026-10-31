@@ -53,6 +53,16 @@
     };
     // remplace le contenu de la zone d'état
     const afficher = (texte, bouton) => etat.replaceChildren(el('p', { textContent: texte }), ...(bouton ? [bouton] : []));
+    // toutes les lignes d'une requête triée (PostgREST en renvoie 1000 au plus à la fois)
+    const tout = async requete => {
+      const data = [];
+      for (let i = 0; ; i += 1000) {
+        const { data: page, error } = await requete().range(i, i + 999);
+        if (error) return { data: null, error };
+        data.push(...page);
+        if (page.length < 1000) return { data, error: null };
+      }
+    };
     const bouton = (texte, classe, action) => el('button', { className: 'btn ' + classe, textContent: texte, onclick: action });
     const connexion = () => sb.auth.signInWithOAuth({
       provider: 'discord',
@@ -62,15 +72,20 @@
     const quand = d => new Date(d).toLocaleString('fr-FR', { timeZone: 'Europe/Paris',
       weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
+    let tour = 0; // verifier() relancé (déconnexion, autre compte) : le tour précédent s'arrête sans rien redessiner
     async function verifier() {
+      const t = ++tour;
+      ++demandeCal; // un calendrier encore en chargement ne s'affiche plus
       contenu.replaceChildren();
       if (zoom.open) zoom.close(); // pas de fenêtre d'officier laissée ouverte après déconnexion
       const { data: { session } } = await sb.auth.getSession();
+      if (t !== tour) return;
       if (!session) return afficher('Cet espace est réservé aux membres de la guilde. Connectez-vous avec votre compte Discord.',
         bouton('Se connecter avec Discord', 'discord', connexion));
 
       afficher('Vérification de votre rôle sur le Discord de la guilde…');
       const { data, error } = await sb.functions.invoke('verifier-role');
+      if (t !== tour) return;
       if (error) return afficher('La vérification a échoué. Réessayez plus tard.', bouton('Se déconnecter', '', deconnexion));
       if (!data.membre && !data.serveur) return afficher("Ce compte Discord n'est pas sur le serveur de la guilde.", bouton('Se déconnecter', '', deconnexion));
       vue = 'membre'; officier = false;
@@ -89,6 +104,7 @@
       const synchro = await sb.functions.invoke('synchro-raidhelper');
       // le message du serveur (ex. « Raid-Helper a répondu 401 ») aide à comprendre une panne
       const detail = synchro.error && await synchro.error.context?.json?.().then(d => d.erreur, () => null);
+      if (t !== tour) return;
       if (synchro.error) calendrier(`Synchronisation Raid-Helper impossible${detail ? ' (' + detail + ')' : ''} : les sorties affichées peuvent dater un peu.`);
       else if (synchro.data?.synchro) calendrier();
     }
@@ -197,10 +213,11 @@
     function apercu({ content, embeds: [e] }) {
       const date = (ts, f) => { const d = new Date(ts * 1000);
         return f === 'R' ? "à l'instant" : d.toLocaleString('fr-FR', f === 'F' ? { dateStyle: 'full', timeStyle: 'short' } : { dateStyle: 'long', timeStyle: 'short' }); };
-      const texte = t => (t ?? '').split(/(\*\*.+?\*\*|<@\d+>|<t:\d+:\w>|@here)/).map(m =>
-        m.startsWith('**') ? el('strong', { textContent: m.slice(2, -2) })
+      const brut = m => m.replace(/\\(.)/g, '$1'); // pseudo échappé par le bot : \_ → _
+      const texte = t => (t ?? '').split(/(\*\*.+?(?<!\\)\*\*|<@\d+>|<t:\d+:\w>|@here)/).map(m =>
+        m.startsWith('**') ? el('strong', { textContent: brut(m.slice(2, -2)) })
         : m === '@here' || m.startsWith('<@') ? el('span', { className: 'd-mention', textContent: m === '@here' ? m : '@' + droits.pseudo })
-        : m.startsWith('<t:') ? el('span', { className: 'd-date', textContent: date(+m.split(':')[1], m.at(-2)) }) : m);
+        : m.startsWith('<t:') ? el('span', { className: 'd-date', textContent: date(+m.split(':')[1], m.at(-2)) }) : brut(m));
       const couleur = '#' + e.color.toString(16).padStart(6, '0');
       return el('div', { className: 'd-message' }, el('p', {}, ...texte(content)),
         el('div', { className: 'd-embed', style: `border-color: ${couleur}` },
@@ -248,7 +265,7 @@
         sb.from('composition').select('*').eq('sortie_id', id),
         sb.from('cibles').select('*').eq('sortie_id', id).maybeSingle(),
         sb.from('loots').select('*').eq('sortie_id', id).order('le'), // membre : la base ne renvoie le butin que s'il était en raid
-        officier ? sb.from('personnages').select('*').order('proprietaire').order('nom') : rien,
+        officier ? tout(() => sb.from('personnages').select('*').order('proprietaire').order('nom').order('joueur')) : rien,
         officier ? sb.rpc('stats_joueurs', { depuis: debutDe('3m') + 'T00:00:00' }) : rien,
         officier ? sb.from('appel_journal').select('*').eq('sortie_id', id).order('modifie_le', { ascending: false }) : rien,
       ]);
@@ -447,9 +464,11 @@
 
     // Historique des loots, filtrable (interface officier : tous ; interface membre : les siens)
     async function historique() {
-      let requete = sb.from('loots').select('*, sorties(titre)');
-      if (!officier) requete = requete.eq('joueur', moi); // un officier en interface membre ne voit que les siens
-      const { data, error } = await requete.order('le', { ascending: false });
+      const off = officier; // un officier en interface membre ne voit que les siens
+      const { data, error } = await tout(() => {
+        const requete = sb.from('loots').select('*, sorties(titre)');
+        return (off ? requete : requete.eq('joueur', moi)).order('le', { ascending: false }).order('id');
+      });
       if (error) return ouvrir(fermer(), el('h2', { textContent: 'Loots' }), el('p', { textContent: 'Loots indisponibles : ' + error.message }));
       const filtre = el('input', { type: 'search', placeholder: 'Filtrer : joueur, personnage, objet, boss, sortie…', ariaLabel: 'Filtrer' });
       const corps = el('tbody');
@@ -480,7 +499,7 @@
         taux(new Date(debutDe('3m') + 'T00:00').toISOString()), taux(null),
         sb.from('appel').select('etat, retard_min, sorties(titre, debut)').eq('joueur', joueur),
         fiche ? sb.from('loots').select('*, sorties(titre)').eq('joueur', joueur).order('le', { ascending: false }) : { data: [] },
-        joueur.startsWith('nom:') ? sb.from('inscriptions').select('discord_id, nom') : { data: [] }]);
+        joueur.startsWith('nom:') ? tout(() => sb.from('inscriptions').select('discord_id, nom').order('sortie_id').order('discord_id')) : { data: [] }]);
       if (error) return ouvrir(...haut, el('p', { textContent: 'Suivi indisponible : ' + error.message }));
       const pct = (a, b) => b ? Math.round(100 * a / b) + ' %' : null;
       const periode = (titre, r) => { r = completer(r ?? {}); return el('tr', {}, ...[titre, r.toutes, r.dispo,
@@ -642,7 +661,7 @@
 
     // tableau de tous les joueurs ; seul le résultat est recalculé
     function stats(zone) {
-      let tri = 'bancs', sens = -1, debut, demande = 0;
+      let tri = 'bancs', sens = -1, debut, demande = 0, lignes = [];
       const periode = choixPeriode(() => charger());
       const resultat = el('div');
 
@@ -652,22 +671,28 @@
         const { data, error } = await sb.rpc('stats_joueurs', { depuis: depuisIso(debut) });
         if (n !== demande) return; // une réponse plus récente est attendue (date tapée chiffre par chiffre)
         if (error) return resultat.replaceChildren(el('p', { textContent: 'Statistiques indisponibles : ' + error.message }));
-        const lignes = data.map(completer).map(r => ({ ...r,
+        lignes = data.map(completer).map(r => ({ ...r,
           presence: pourcent(r.presents, r.dispo),
           retard: r.presents ? Math.round(100 * r.retards / r.presents) : null,
           loots_soiree: r.presents ? Math.round(100 * r.loots / r.presents) / 100 : null,
           dernier: r.dernier_loot && `${r.dernier_loot} (${new Date(r.dernier_loot_le).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })})` }));
+        afficher();
+      }
+
+      // tri et export sur les lignes déjà lues, sans nouvelle requête
+      function afficher() {
         const comparer = (a, b) => typeof a === 'string' ? a.localeCompare(b, 'fr') : a - b;
         lignes.sort((a, b) => a[tri] == null ? 1 : b[tri] == null ? -1 : sens * comparer(a[tri], b[tri])); // vides en dernier
 
         const exporter = () => {
-          const cellule = v => `"${String(v ?? '').replaceAll('"', '""')}"`;
+          // texte commençant par = + - @ (pseudo Discord) : apostrophe devant, Excel ne l'exécute pas comme une formule
+          const cellule = v => `"${(typeof v === 'string' && /^[=+\-@\t\r]/.test(v) ? "'" + v : String(v ?? '')).replaceAll('"', '""')}"`;
           const texte = [COLONNES.map(c => c[1]), ...lignes.map(r => COLONNES.map(([k]) => r[k]))]
             .map(l => l.map(cellule).join(';')).join('\r\n'); // « ; » et BOM : ouverture directe dans Excel en français
           el('a', { href: URL.createObjectURL(new Blob(['\ufeff' + texte], { type: 'text/csv' })),
             download: `statistiques-${debut ? 'depuis-' + debut : 'depuis-le-debut'}.csv` }).click();
         };
-        const trier = k => () => { sens = k === tri ? -sens : k === 'nom' ? 1 : -1; tri = k; charger(); };
+        const trier = k => () => { sens = k === tri ? -sens : k === 'nom' ? 1 : -1; tri = k; afficher(); };
         resultat.replaceChildren(...(lignes.length ? [
           el('div', { className: 'stats' }, el('table', {},
             el('thead', {}, el('tr', {}, ...COLONNES.map(([k, t]) => el('th', {}, el('button', {
@@ -808,6 +833,8 @@
     // arrivent tous deux (dans un ordre variable) et lanceraient deux synchronisations concurrentes
     let utilisateur = 0; // 0 = pas encore vérifié (distinct de undefined = déconnecté)
     sb.auth.onAuthStateChange((evt, session) => {
+      // droits valables un jour dans la base : relus à chaque rafraîchissement du jeton (environ toutes les heures)
+      if (evt === 'TOKEN_REFRESHED' && session?.user.id === utilisateur) return void sb.functions.invoke('verifier-role');
       if (session?.user.id === utilisateur) return;
       utilisateur = session?.user.id;
       setTimeout(verifier);
