@@ -147,7 +147,7 @@
         interfaces(),
         el('p', { className: 'outils' }, !officier && bouton('Mon suivi', '', suivi),
           bouton(officier ? 'Loots' : 'Mes loots', '', historique),
-          officier && bouton('Stats joueurs', '', statsJoueurs), officier && bouton('Actualiser', '', actualiser)),
+          officier && bouton('Stats joueurs', '', statsJoueurs), officier && bouton('Recrues', '', recrues), officier && bouton('Actualiser', '', actualiser)),
         el('div', { className: 'cal-tete' },
           el('button', { className: 'nav-mois', textContent: '‹', ariaLabel: 'Mois précédent', onclick: changer(-1) }),
           el('h2', { textContent: mois.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) }),
@@ -502,7 +502,7 @@
     async function suivi(joueur = moi, nom, retour) {
       if (typeof joueur !== 'string') joueur = moi; // appelé par le bouton « Mon suivi » (événement)
       const fiche = joueur !== moi;
-      const haut = [fermer(), retour && el('button', { className: 'lien', type: 'button', textContent: '‹ Retour aux stats', onclick: retour }),
+      const haut = [fermer(), retour && el('button', { className: 'lien', type: 'button', textContent: '‹ Retour', onclick: retour }),
         el('h2', { textContent: fiche ? nom : 'Mon suivi' })];
       const taux = depuis => sb.rpc('stats_joueurs', { depuis }).eq('joueur', joueur).maybeSingle();
       const [{ data: trois }, { data: tout }, { data: soirees, error }, { data: loots }, { data: inscr }] = await Promise.all([
@@ -595,7 +595,9 @@
           message,
           el('p', { className: 'vide', textContent: "Comptes du serveur Discord et leur grade selon leurs rôles. Invité : joueur d'une autre guilde invité en raid, la charte ne le concerne pas." }));
       }
-      const { data, error } = await sb.from('signatures').select('le, annoncee').eq('joueur', moi).maybeSingle();
+      const [{ data, error }, { data: rang }] = await Promise.all([
+        sb.from('signatures').select('le, annoncee').eq('joueur', moi).maybeSingle(),
+        sb.from('roster').select('grade, demande_passage').eq('joueur', moi).maybeSingle()]);
       if (n !== demandeCharte) return;
       // message du bot aux officiers, relancé tant qu'il n'est pas parti (la fonction n'envoie qu'une fois)
       if (data && !data.annoncee) sb.functions.invoke('annoncer-signature');
@@ -608,7 +610,49 @@
               const { error } = await sb.from('signatures').insert({});
               if (error) return message.textContent = "L'enregistrement a échoué : " + error.message;
               chargerCharte();
-            })), message);
+            })), passage(data, rang, message), message);
+    }
+
+    // postulant : demande de passage membre, une fois la charte signée (la base vérifie les deux)
+    const passage = (signee, rang, message) => rang?.grade === 'postulant' && el('p', {},
+      ...(rang.demande_passage
+        ? [`Demande de passage membre envoyée le ${new Date(rang.demande_passage).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })} : les officiers l'étudient.`]
+        : signee ? ['Postulant : quand vous vous sentez prêt, ', bouton('Demander mon passage membre', 'discord', async () => {
+            const { error } = await sb.rpc('demander_passage');
+            if (error) return message.textContent = "La demande a échoué : " + error.message;
+            chargerCharte();
+          })]
+        : ['Postulant : signez la charte pour pouvoir demander votre passage membre.']));
+
+    // Recrues (officiers) : postulants du plus ancien au plus récent, puis comptes sans rôle (veulent en général
+    // intégrer la guilde), avec charte, présence depuis le début et demande de passage
+    async function recrues() {
+      const [{ data: roster, error }, { data: stats }, { data: signes }] = await Promise.all([
+        sb.from('roster').select('joueur, pseudo, grade, arrivee, demande_passage').in('grade', ['postulant', 'sans_role']).order('arrivee'),
+        sb.rpc('stats_joueurs', { depuis: null }), sb.from('signatures').select('joueur, le')]);
+      const haut = [fermer(), el('h2', { textContent: 'Recrues' })];
+      if (error) return ouvrir(...haut, el('p', { textContent: 'Recrues indisponibles : ' + error.message }));
+      const parJoueur = new Map((stats ?? []).map(r => [r.joueur, completer(r)]));
+      const signe = new Map((signes ?? []).map(g => [g.joueur, g.le]));
+      const date = d => new Date(d).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' });
+      const groupe = (grade, titre, vide) => {
+        const liste = roster.filter(m => m.grade === grade), postulants = grade === 'postulant';
+        return [el('h3', { textContent: `${titre} (${liste.length})` }), liste.length ? el('div', { className: 'stats' }, el('table', {},
+          el('thead', {}, el('tr', {}, ...['Joueur', 'Arrivée sur le Discord', 'Charte', 'Présence', ...(postulants ? ['Demande de passage'] : [])]
+            .map(t => el('th', { textContent: t })))),
+          el('tbody', {}, ...liste.map(m => {
+            const r = parJoueur.get(m.joueur);
+            return el('tr', {},
+              el('td', {}, el('button', { className: 'lien', type: 'button', textContent: m.pseudo, onclick: () => suivi(m.joueur, m.pseudo, recrues) })),
+              el('td', { textContent: m.arrivee ? `${date(m.arrivee)} (${Math.floor((Date.now() - Date.parse(m.arrivee)) / 86400e3)} j)` : '–' }),
+              el('td', { textContent: signe.has(m.joueur) ? 'Signée le ' + date(signe.get(m.joueur)) : 'Non signée' }),
+              el('td', { textContent: r?.dispo ? `${r.presents} soirée(s) en raid · ${pourcent(r.presents, r.dispo)} %` : 'Aucune soirée' }),
+              postulants && el('td', { textContent: m.demande_passage ? date(m.demande_passage) : '–' }));
+          }))))
+          : el('p', { className: 'vide', textContent: vide })];
+      };
+      ouvrir(...haut, ...groupe('postulant', 'Postulants', 'Aucun postulant pour le moment.'),
+        ...groupe('sans_role', 'Sans rôle sur le Discord', 'Aucun compte sans rôle.'));
     }
 
     // Absences longues : chacun déclare les siennes ; l'interface officier montre celles de tous, en lecture seule

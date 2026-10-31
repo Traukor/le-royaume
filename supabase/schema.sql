@@ -476,7 +476,36 @@ alter table public.roster drop constraint if exists roster_grade_check;
 alter table public.roster add constraint roster_grade_check check (grade in ('gm', 'officier', 'membre', 'postulant', 'invite', 'sans_role'));
 alter table public.roster enable row level security;
 drop policy if exists lire on public.roster;
-create policy lire on public.roster for select using ((select public.est_membre()));
+-- chacun lit aussi sa propre ligne (un postulant sans accès membre voit sa demande de passage)
+create policy lire on public.roster for select using ((select public.est_membre()) or joueur = (select public.mon_discord()));
 
 -- non_signataires() remplacée par la liste roster + signatures de l'espace
 drop function if exists public.non_signataires();
+
+-- Postulants : demande de passage membre, faite par le postulant lui-même après avoir signé la charte.
+-- La synchronisation ne touche pas à la colonne ; elle est effacée dès que le joueur n'est plus postulant.
+alter table public.roster add column if not exists demande_passage timestamptz;
+create or replace function public.effacer_demande() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  if new.grade <> 'postulant' then new.demande_passage := null; end if;
+  return new;
+end $$;
+drop trigger if exists effacer_demande on public.roster;
+create trigger effacer_demande before update on public.roster
+  for each row execute function public.effacer_demande();
+
+create or replace function public.demander_passage() returns timestamptz
+language plpgsql security definer set search_path = '' as $$
+declare
+  le timestamptz;
+begin
+  if not exists (select 1 from public.signatures where joueur = public.mon_discord()) then
+    raise exception 'signez d''abord la charte';
+  end if;
+  update public.roster set demande_passage = coalesce(demande_passage, now())
+    where joueur = public.mon_discord() and grade = 'postulant'
+    returning demande_passage into le;
+  if le is null then raise exception 'réservé aux postulants'; end if;
+  return le;
+end $$;
