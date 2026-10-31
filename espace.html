@@ -610,7 +610,7 @@
               const { error } = await sb.from('signatures').insert({});
               if (error) return message.textContent = "L'enregistrement a échoué : " + error.message;
               chargerCharte();
-            })), passage(data, rang, message), message);
+            })), passage(data, rang, message) || '', message);
     }
 
     // postulant : demande de passage membre, une fois la charte signée (la base vérifie les deux)
