@@ -357,7 +357,7 @@
         const joueur = membre ? membre.joueur : 'nom:' + nom.toLowerCase();
         // un même joueur deux fois ferait échouer tout l'enregistrement
         if (nom && ![...lignes.querySelectorAll('.ligne')].some(f => f.dataset.joueur === joueur)) {
-          ligne(joueur, nom, 'non inscrit', 'present', null, true);
+          ligne(joueur, membre ? membre.pseudo : nom, 'non inscrit', 'present', null, true);
           modifie();
         }
         nouveau.value = '';
