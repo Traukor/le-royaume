@@ -595,7 +595,7 @@
           message,
           el('p', { className: 'vide', textContent: "Comptes du serveur Discord et leur grade selon leurs rôles. Invité : joueur d'une autre guilde invité en raid, la charte ne le concerne pas." }));
       }
-      const [{ data, error }, { data: rang }] = await Promise.all([
+      const [{ data, error }, { data: maLigne }] = await Promise.all([
         sb.from('signatures').select('le, annoncee').eq('joueur', moi).maybeSingle(),
         sb.from('roster').select('grade, demande_passage').eq('joueur', moi).maybeSingle()]);
       if (n !== demandeCharte) return;
@@ -610,7 +610,7 @@
               const { error } = await sb.from('signatures').insert({});
               if (error) return message.textContent = "L'enregistrement a échoué : " + error.message;
               chargerCharte();
-            })), passage(data, rang, message) || '', message);
+            })), passage(data, maLigne, message) || '', message);
     }
 
     // postulant : demande de passage membre, une fois la charte signée (la base vérifie les deux)
