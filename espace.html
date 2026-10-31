@@ -553,8 +553,9 @@
     // Charte : chaque membre l'approuve une fois ; officiers et gestion du site listent les signatures et qui n'a pas signé,
     // seule la gestion du site retire une signature
     const blocCharte = el('section', { className: 'absences' });
-    const GRADES = { gm: 'Chef de guilde', officier: 'Officier', membre: 'Membre', postulant: 'Postulant' }; // dans l'ordre d'affichage
-    const rang = c => { const i = Object.values(GRADES).indexOf(c.grade); return i < 0 ? 99 : i; }; // invités en dernier
+    // invité : sur le Discord sans rôle de la guilde (veut intégrer la guilde)
+    const GRADES = { gm: 'Chef de guilde', officier: 'Officier', membre: 'Membre', postulant: 'Postulant', invite: 'Invité (sans rôle)' }; // ordre d'affichage
+    const rang = c => { const i = Object.values(GRADES).indexOf(c.grade); return i < 0 ? 99 : i; }; // partis du Discord en dernier
     let demandeCharte = 0;
 
     async function chargerCharte() {
@@ -574,16 +575,16 @@
           if (error) return message.textContent = 'Le retrait a échoué : ' + error.message;
           chargerCharte();
         };
-        // joueurs du roster par grade (chef de guilde, officiers, membres, postulants), puis les signataires sans rôle
-        // de la guilde (invités) ; ordre alphabétique dans chaque grade
+        // comptes du Discord par grade (chef de guilde, officiers, membres, postulants, invités sans rôle), puis les
+        // signataires partis du Discord ; ordre alphabétique dans chaque grade
         const signature = new Map(signes.map(g => [g.joueur, g]));
         const duRoster = new Set(roster.map(m => m.joueur));
         const comptes = [...roster.map(m => ({ pseudo: m.pseudo, grade: GRADES[m.grade], signe: signature.get(m.joueur) })),
-          ...signes.filter(g => !duRoster.has(g.joueur)).map(g => ({ pseudo: g.nom ?? '?', grade: 'Invité (sans rôle)', signe: g }))]
+          ...signes.filter(g => !duRoster.has(g.joueur)).map(g => ({ pseudo: g.nom ?? '?', grade: 'Parti du Discord', signe: g }))]
           .sort((a, b) => rang(a) - rang(b) || a.pseudo.localeCompare(b.pseudo, 'fr'));
         const date = d => new Date(d).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' });
         return blocCharte.replaceChildren(titre,
-          el('p', {}, `${signes.length} signature${signes.length > 1 ? 's' : ''} · ${comptes.filter(c => !c.signe).length} joueur(s) de la guilde sans signature. `, lien),
+          el('p', {}, `${signes.length} signature${signes.length > 1 ? 's' : ''} · ${comptes.filter(c => !c.signe).length} compte(s) du Discord sans signature. `, lien),
           el('div', { className: 'stats' }, el('table', {},
             el('thead', {}, el('tr', {}, ...['Joueur', 'Grade', 'Charte', ...(gere ? [''] : [])].map(t => el('th', { textContent: t })))),
             el('tbody', {}, ...comptes.map(c => el('tr', {},
@@ -592,7 +593,7 @@
               gere && el('td', {}, c.signe && el('button', { className: 'retirer', type: 'button', textContent: '×', title: 'Retirer la signature',
                 ariaLabel: 'Retirer la signature de ' + c.pseudo, onclick: retirer(c.signe) }))))))),
           message,
-          el('p', { className: 'vide', textContent: 'Joueurs de la guilde selon leurs rôles Discord ; un invité apparaît une fois la charte signée.' }));
+          el('p', { className: 'vide', textContent: 'Comptes du serveur Discord et leur grade selon leurs rôles ; un invité est un compte sans rôle de la guilde.' }));
       }
       const { data, error } = await sb.from('signatures').select('le, annoncee').eq('joueur', moi).maybeSingle();
       if (n !== demandeCharte) return;

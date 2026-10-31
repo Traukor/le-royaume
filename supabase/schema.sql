@@ -462,15 +462,17 @@ create policy gerer on public.reglages for all using ((select public.est_gestion
 
 -- ===== Lot 5 : roster et recrues =====
 
--- Roster : membres du serveur Discord qui ont un rôle de la guilde, avec leur grade.
+-- Roster : comptes du serveur Discord avec leur grade (invite : aucun rôle de la guilde, veut l'intégrer).
 -- Rempli uniquement par l'Edge Function synchro-roster (bot, clé service) ; lisible par les membres.
 create table if not exists public.roster (
   joueur  text primary key,  -- identifiant Discord
   pseudo  text not null,
-  grade   text not null check (grade in ('gm', 'officier', 'membre', 'postulant')),
+  grade   text not null,
   arrivee timestamptz,       -- arrivée sur le serveur Discord
   maj     timestamptz not null default now()
 );
+alter table public.roster drop constraint if exists roster_grade_check;
+alter table public.roster add constraint roster_grade_check check (grade in ('gm', 'officier', 'membre', 'postulant', 'invite'));
 alter table public.roster enable row level security;
 drop policy if exists lire on public.roster;
 create policy lire on public.roster for select using ((select public.est_membre()));

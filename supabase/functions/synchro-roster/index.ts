@@ -1,7 +1,7 @@
 // Edge Function Supabase « synchro-roster »
-// Copie dans la table roster les membres du serveur Discord qui ont un rôle de la guilde, avec leur grade.
+// Copie dans la table roster les comptes du serveur Discord avec leur grade ; « invite » : aucun rôle de la guilde.
 // Appelée par l'espace guilde à chaque ouverture, comme synchro-raidhelper ; au plus une fois toutes les 5 minutes.
-// Un joueur qui n'a plus de rôle de la guilde (ou a quitté le serveur) sort du roster.
+// Un compte qui a quitté le serveur sort du roster.
 //
 // Prérequis : intent privilégié « Server Members » activé pour le bot (portail développeur Discord > Bot).
 // Secrets (déjà définis) : DISCORD_BOT_TOKEN, DISCORD_GUILD_ID, DISCORD_GM_ROLE_IDS, DISCORD_GESTION_ROLE_IDS,
@@ -57,8 +57,8 @@ Deno.serve(async (req) => {
     if (!r.ok) return json({ erreur: `Discord a répondu ${r.status}` }, 502);
     const page = await r.json();
     for (const m of page) {
-      const grade = !m.user.bot && GRADES.find(([, ids]) => m.roles.some((id: string) => ids.includes(id)))?.[0];
-      if (grade) {
+      if (!m.user.bot) {
+        const grade = GRADES.find(([, ids]) => m.roles.some((id: string) => ids.includes(id)))?.[0] ?? "invite";
         lignes.push({
           joueur: m.user.id, pseudo: m.nick ?? m.user.global_name ?? m.user.username, grade,
           arrivee: m.joined_at, maj,
@@ -69,11 +69,11 @@ Deno.serve(async (req) => {
     apres = page.at(-1).user.id;
   }
 
-  // aucun joueur : secrets de rôles vides ou réponse anormale, le roster n'est pas vidé
-  if (!lignes.length) return json({ erreur: "aucun membre avec un rôle de la guilde" }, 502);
+  // aucun joueur de la guilde : secrets de rôles vides ou réponse anormale, le roster n'est pas vidé
+  if (!lignes.some((l) => l.grade !== "invite")) return json({ erreur: "aucun membre avec un rôle de la guilde" }, 502);
   const { error: e1 } = await admin.from("roster").upsert(lignes);
   if (e1) return json({ erreur: e1.message }, 500);
-  // pas revu lors de cette synchronisation : plus de rôle de la guilde, ou parti du serveur
+  // pas revu lors de cette synchronisation : parti du serveur
   const { error: e2 } = await admin.from("roster").delete().lt("maj", maj);
   if (e2) return json({ erreur: e2.message }, 500);
   const { error: e3 } = await admin.from("synchro").upsert({ id: 2, le: maj });
