@@ -158,7 +158,7 @@
 
     // Gestion du site : comptes connus de l'espace (la base vérifie le rôle de gestion)
     async function gestion() {
-      const [{ data, error }, { data: modeles, error: e2 }, { data: reglage }] = await Promise.all([sb.rpc('comptes'),
+      const [{ data, error }, { data: modeles, error: e2 }, { data: reglage, error: e3 }] = await Promise.all([sb.rpc('comptes'),
         sb.functions.invoke('annoncer-signature', { body: { apercu: true } }),
         sb.from('reglages').select('valeur').eq('cle', 'annonce_signature').maybeSingle()]);
       if (vue !== 'gestion') return;
@@ -169,7 +169,7 @@
           el('tbody', {}, ...data.map(c => el('tr', {}, ...[c.pseudo ?? '?', niveau(c), quand(c.maj)].map(v => el('td', { textContent: v }))))))),
         el('p', { className: 'vide', textContent: "Accès relu sur le Discord à chaque ouverture de l'espace." }),
         el('h2', { textContent: 'Annonce des signatures' }),
-        e2 ? el('p', { textContent: 'Modèles indisponibles pour le moment.' }) : annonces(modeles, reglage?.valeur ?? 'sobre'),
+        e2 ? el('p', { textContent: 'Modèles indisponibles pour le moment.' }) : annonces(modeles, e3 ? null : Object.hasOwn(MODELES, reglage?.valeur ?? '') ? reglage.valeur : 'sobre') /* comme le bot */,
         blocCharte);
       chargerCharte();
     }
@@ -178,15 +178,16 @@
     // Les aperçus sont les messages réels renvoyés par l'Edge Function (exemple : le compte connecté, en invité).
     const MODELES = { sobre: 'Sobre doré', proclamation: 'Proclamation royale', recrue: 'Fiche recrue', minimal: 'Minimal' };
     function annonces(modeles, choisi) {
-      const message = el('p', { className: 'vide' });
-      const choix = () => zone.querySelector('input:checked').value;
+      const message = el('p', { className: 'vide', textContent: choisi ? '' : 'Modèle enregistré illisible pour le moment.' });
       const zone = el('div', { className: 'modeles' }, ...Object.entries(MODELES).map(([k, t]) => el('label', { className: 'modele' },
         el('span', {}, el('input', { type: 'radio', name: 'modele', value: k, checked: k === choisi, onchange: async () => {
           const { error } = await sb.from('reglages').upsert({ cle: 'annonce_signature', valeur: k });
           message.textContent = error ? "L'enregistrement a échoué : " + error.message : `Modèle « ${t} » enregistré.`;
-        } }), ' ' + t), apercu(modeles[k]))));
+        } }), ' ' + t), modeles[k] ? apercu(modeles[k]) : el('p', { className: 'vide', textContent: 'Aperçu indisponible.' }))));
       const essai = bouton('Envoyer un essai dans le salon', '', async () => {
-        const { error } = await sb.functions.invoke('annoncer-signature', { body: { essai: choix() } });
+        const k = zone.querySelector('input:checked')?.value;
+        if (!k) return message.textContent = 'Choisissez un modèle.';
+        const { error } = await sb.functions.invoke('annoncer-signature', { body: { essai: k } });
         message.textContent = error ? "L'essai a échoué." : 'Essai envoyé, sans notification.';
       });
       return el('div', {}, el('p', { textContent: 'Message posté par le bot dans le salon des officiers (avec @here) à chaque signature :' }),
@@ -523,13 +524,16 @@
     // Charte : chaque membre l'approuve une fois ; officiers et gestion du site listent les signatures et qui n'a pas signé,
     // seule la gestion du site retire une signature
     const blocCharte = el('section', { className: 'absences' });
+    let demandeCharte = 0;
 
     async function chargerCharte() {
+      const n = ++demandeCharte, gere = vue === 'gestion'; // vues changées vite : seule la dernière réponse s'affiche
       const titre = el('h2', { textContent: 'Charte' });
       const lien = el('a', { href: 'charte.html', target: '_blank', textContent: 'Lire la charte' });
-      if (officier || vue === 'gestion') {
+      if (officier || gere) {
         const [{ data: signes, error }, { data: manquants, error: e2 }] = await Promise.all([
           sb.from('signatures').select('joueur, nom').order('nom'), sb.rpc('non_signataires')]);
+        if (n !== demandeCharte) return;
         if (error || e2) return blocCharte.replaceChildren(titre, el('p', { textContent: 'Signatures indisponibles pour le moment.' }));
         const message = el('p', { className: 'vide' });
         // signature indésirable (le Discord a une invitation publique) : elle disparaît aussi de la page publique
@@ -542,12 +546,15 @@
         return blocCharte.replaceChildren(titre,
           el('p', {}, `${signes.length} signature${signes.length > 1 ? 's' : ''}. `, lien),
           signes.length ? el('ul', { className: 'inscrits' }, ...signes.map(g => el('li', {}, g.nom ?? '?',
-            vue === 'gestion' && el('button', { className: 'retirer', type: 'button', textContent: '×', title: 'Retirer la signature', ariaLabel: 'Retirer la signature de ' + g.nom, onclick: retirer(g) })))) : '',
+            gere && el('button', { className: 'retirer', type: 'button', textContent: '×', title: 'Retirer la signature', ariaLabel: 'Retirer la signature de ' + g.nom, onclick: retirer(g) })))) : '',
           message,
           el('p', { textContent: manquants.length ? 'Pas encore signée par : ' + manquants.join(', ') + '.' : 'Signée par tous les membres connus.' }),
           el('p', { className: 'vide', textContent: "Seuls les membres déjà connectés à l'espace sont connus du site." }));
       }
-      const { data, error } = await sb.from('signatures').select('le').eq('joueur', moi).maybeSingle();
+      const { data, error } = await sb.from('signatures').select('le, annoncee').eq('joueur', moi).maybeSingle();
+      if (n !== demandeCharte) return;
+      // message du bot aux officiers, relancé tant qu'il n'est pas parti (la fonction n'envoie qu'une fois)
+      if (data && !data.annoncee) sb.functions.invoke('annoncer-signature');
       if (error) return blocCharte.replaceChildren(titre, el('p', { textContent: 'Charte indisponible pour le moment.' }));
       const message = el('p', { className: 'vide' });
       blocCharte.replaceChildren(titre, data
@@ -556,7 +563,6 @@
             bouton("J'ai lu et j'approuve", 'discord', async () => {
               const { error } = await sb.from('signatures').insert({});
               if (error) return message.textContent = "L'enregistrement a échoué : " + error.message;
-              sb.functions.invoke('annoncer-signature'); // message du bot aux officiers ; la signature compte même s'il échoue
               chargerCharte();
             })), message);
     }
@@ -564,11 +570,14 @@
     // Absences longues : chacun déclare les siennes ; l'interface officier montre celles de tous, en lecture seule
     const blocAbsences = el('section', { className: 'absences' });
     let moi = null; // identifiant Discord du compte connecté
+    let demandeAbs = 0;
 
     async function chargerAbsences() {
+      const n = ++demandeAbs, off = officier; // vue figée au départ de la requête
       let requete = sb.from('absences').select('*').gte('au', jourParis(Date.now()));
-      if (!officier) requete = requete.eq('joueur', moi);
+      if (!off) requete = requete.eq('joueur', moi);
       const { data, error } = await requete.order('du');
+      if (n !== demandeAbs) return;
       if (error) return blocAbsences.replaceChildren(el('p', { textContent: 'Absences indisponibles pour le moment.' }));
       const date = d => new Date(d + 'T12:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
       const du = el('input', { type: 'date', min: jourParis(Date.now()), ariaLabel: 'Du' });
@@ -587,13 +596,13 @@
         chargerAbsences();
       };
       blocAbsences.replaceChildren(
-        el('h2', { textContent: officier ? 'Absences déclarées' : 'Mes absences' }),
-        officier ? '' : el('p', { className: 'declarer' }, 'Absent sur une période (par ex. vacances) : ', el('label', {}, 'du ', du), ' ', el('label', {}, 'au ', au), ' ', motif, ' ', declarer),
+        el('h2', { textContent: off ? 'Absences déclarées' : 'Mes absences' }),
+        off ? '' : el('p', { className: 'declarer' }, 'Absent sur une période (par ex. vacances) : ', el('label', {}, 'du ', du), ' ', el('label', {}, 'au ', au), ' ', motif, ' ', declarer),
         message,
         data.length ? el('ul', { className: 'inscrits' }, ...data.map(a => el('li', {},
-          officier && el('strong', { textContent: a.nom + ' : ' }),
+          off && el('strong', { textContent: a.nom + ' : ' }),
           `du ${date(a.du)} au ${date(a.au)}`, a.motif && el('span', { textContent: ' — ' + a.motif }),
-          !officier && el('button', { className: 'retirer', type: 'button', textContent: '×', title: 'Supprimer',
+          a.joueur === moi && !off && el('button', { className: 'retirer', type: 'button', textContent: '×', title: 'Supprimer',
             ariaLabel: 'Supprimer cette absence', onclick: supprimer(a) }))))
           : el('p', { textContent: 'Aucune absence à venir.' }));
     }

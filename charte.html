@@ -97,7 +97,7 @@
     fetch('https://gobvfbwuesskhrgcrzjd.supabase.co/rest/v1/rpc/signataires', {
       method: 'POST', headers: { apikey: cle, 'Content-Type': 'application/json' }, body: '{}',
     }).then(r => r.ok ? r.json() : Promise.reject())
-      .then(noms => zone.textContent = noms.length ? noms.join(', ') + '.' : 'Personne pour le moment.')
+      .then(noms => zone.textContent = (noms = noms.filter(Boolean)).length ? noms.join(', ') + '.' : 'Personne pour le moment.')
       .catch(() => zone.textContent = 'Liste indisponible pour le moment.');
   </script>
 </body>

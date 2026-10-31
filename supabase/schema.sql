@@ -354,7 +354,9 @@ create table if not exists public.signatures (
   nom     text,
   le      timestamptz not null default now()
 );
--- ancienne colonne version (signature par version de la charte) : la charte n'a qu'une version
+-- ancienne colonne version (signature par version de la charte) : la charte n'a qu'une version ;
+-- un joueur signataire de plusieurs versions garde sa première signature
+delete from public.signatures a using public.signatures b where a.joueur = b.joueur and (a.le, a.ctid) > (b.le, b.ctid);
 alter table public.signatures drop column if exists version;
 do $$ begin
   if not exists (select 1 from pg_constraint where conrelid = 'public.signatures'::regclass and contype = 'p') then
@@ -374,9 +376,8 @@ create trigger signer_charte before insert on public.signatures
   for each row execute function public.signer_charte();
 
 -- annoncee : annonce faite dans le salon des officiers (Edge Function annoncer-signature) ;
--- les signatures antérieures à l'annonce sont considérées comme annoncées
+-- les signatures antérieures à l'annonce sont considérées comme annoncées ; les nouvelles partent à false (trigger)
 alter table public.signatures add column if not exists annoncee boolean not null default true;
-alter table public.signatures alter column annoncee set default false;
 alter table public.signatures enable row level security;
 -- tout compte présent sur le Discord (membre ou invité sans rôle) signe ; une signature ne se modifie pas,
 -- seule la gestion du site la retire (signature indésirable : le Discord a une invitation publique)
@@ -391,7 +392,7 @@ create policy retirer on public.signatures for delete using ((select public.est_
 -- Signataires, affichés publiquement sous la charte (charte.html, sans connexion).
 create or replace function public.signataires() returns setof text
 language sql stable security definer set search_path = '' as $$
-  select nom from public.signatures order by lower(nom)
+  select nom from public.signatures where nom is not null order by lower(nom)
 $$;
 grant execute on function public.signataires() to anon;
 

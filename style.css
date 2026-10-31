@@ -5,6 +5,7 @@
   --muted: #a9a594;
   --gold: #d4af37;
   --gold-dark: #8a6d1d;
+  --vert: oklch(.43627 .11 157.5); /* Présent / En raid */
   --discord: #5865f2;
 }
 
@@ -242,9 +243,9 @@ button.btn { background: transparent; color: var(--gold); font-size: 1rem; curso
 .compare thead th { vertical-align: top; }
 .compare .section th { padding-top: 14px; color: var(--gold); font: 700 .85rem "Cinzel", serif; text-align: left; }
 .barre { display: inline-block; width: 60px; height: 8px; background: var(--panel); border: 1px solid var(--gold-dark); border-radius: 4px; vertical-align: middle; overflow: hidden; }
-.barre span { display: block; height: 100%; background: oklch(.43627 .11 157.5); }
+.barre span { display: block; height: 100%; background: var(--vert); }
 .repartition { display: inline-flex; width: 120px; height: 12px; border-radius: 3px; overflow: hidden; vertical-align: middle; }
-.r-presents_seuls { background: oklch(.43627 .11 157.5); }
+.r-presents_seuls { background: var(--vert); }
 .r-retards { background: var(--gold-dark); }
 .r-bancs { background: #5b7a86; }
 .r-absents_prevenus { background: #a9a594; }

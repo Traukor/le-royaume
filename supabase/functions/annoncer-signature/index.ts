@@ -79,13 +79,15 @@ Deno.serve(async (req) => {
   if (!compte) return json({ erreur: "compte inconnu" }, 403);
 
   const bot = { Authorization: `Bot ${Deno.env.get("DISCORD_BOT_TOKEN")}` };
-  const profil = await fetch(`https://discord.com/api/v10/users/${compte.discord_id}`, { headers: bot }).then((r) => r.ok ? r.json() : null);
-  const avatar = profil?.avatar
-    ? `https://cdn.discordapp.com/avatars/${compte.discord_id}/${profil.avatar}.png`
-    : "https://cdn.discordapp.com/embed/avatars/0.png";
-  const signature = (le: string): Signature => ({
-    id: compte.discord_id, pseudo: compte.pseudo ?? "?", avatar, ts: Math.floor(Date.parse(le) / 1000), invite: !compte.membre,
-  });
+  // profil Discord (avatar) lu seulement quand un message est vraiment construit
+  const signature = async (le: string): Promise<Signature> => {
+    const profil = await fetch(`https://discord.com/api/v10/users/${compte.discord_id}`, { headers: bot }).then((r) => r.ok ? r.json() : null);
+    const avatar = profil?.avatar
+      ? `https://cdn.discordapp.com/avatars/${compte.discord_id}/${profil.avatar}.png`
+      : "https://cdn.discordapp.com/embed/avatars/0.png";
+    return { id: compte.discord_id, pseudo: compte.pseudo ?? "?", avatar, ts: Math.floor(Date.parse(le) / 1000), invite: !compte.membre };
+  };
+  const connu = (k: unknown): k is string => typeof k === "string" && Object.hasOwn(MODELES, k); // pas « toString », « __proto__ »…
   const envoyer = (message: unknown) => fetch(`https://discord.com/api/v10/channels/${SALON}/messages`, {
     method: "POST", headers: { ...bot, "Content-Type": "application/json" }, body: JSON.stringify(message),
   });
@@ -93,9 +95,9 @@ Deno.serve(async (req) => {
   if (apercu || essai) {
     const { data: gestion } = await utilisateur.rpc("est_gestion");
     if (!gestion) return json({ erreur: "réservé à la gestion du site" }, 403);
-    const exemple = { ...signature(new Date().toISOString()), invite: true }; // le cas qui demande une action
+    if (!apercu && !connu(essai)) return json({ erreur: "modèle inconnu" }, 400);
+    const exemple = { ...await signature(new Date().toISOString()), invite: true }; // le cas qui demande une action
     if (apercu) return json(Object.fromEntries(Object.entries(MODELES).map(([k, f]) => [k, f(exemple)])));
-    if (!MODELES[essai]) return json({ erreur: "modèle inconnu" }, 400);
     const m = MODELES[essai](exemple);
     const r = await envoyer({ ...m, content: "Essai du modèle (sans notification)", allowed_mentions: { parse: [] } });
     return r.ok ? json({ envoye: true }) : json({ erreur: `Discord a répondu ${r.status}` }, 502);
@@ -106,8 +108,9 @@ Deno.serve(async (req) => {
     .eq("joueur", compte.discord_id).eq("annoncee", false).select("le").maybeSingle();
   if (!ligne) return json({ envoye: false });
   const { data: reglage } = await admin.from("reglages").select("valeur").eq("cle", "annonce_signature").maybeSingle();
-  const modele = MODELES[reglage?.valeur ?? "sobre"] ?? MODELES.sobre;
-  const r = await envoyer({ ...modele(signature(ligne.le)), allowed_mentions: { parse: ["everyone"] } });
+  const choisi = reglage?.valeur;
+  const modele = connu(choisi) ? MODELES[choisi] : MODELES.sobre;
+  const r = await envoyer({ ...modele(await signature(ligne.le)), allowed_mentions: { parse: ["everyone"] } });
   if (!r.ok) { // échec : la signature redevient « non annoncée », un nouvel appel la renverra
     await admin.from("signatures").update({ annoncee: false }).eq("joueur", compte.discord_id);
     return json({ erreur: `Discord a répondu ${r.status}` }, 502);
