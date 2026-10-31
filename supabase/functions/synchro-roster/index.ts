@@ -1,11 +1,12 @@
 // Edge Function Supabase « synchro-roster »
-// Copie dans la table roster les comptes du serveur Discord avec leur grade ; « invite » : aucun rôle de la guilde.
+// Copie dans la table roster les comptes du serveur Discord avec leur grade : gm, officier, membre, postulant,
+// invite (rôle Invité : joueur d'une autre guilde invité en raid, la charte ne le concerne pas) ou sans_role.
 // Appelée par l'espace guilde à chaque ouverture, comme synchro-raidhelper ; au plus une fois toutes les 5 minutes.
 // Un compte qui a quitté le serveur sort du roster.
 //
 // Prérequis : intent privilégié « Server Members » activé pour le bot (portail développeur Discord > Bot).
 // Secrets (déjà définis) : DISCORD_BOT_TOKEN, DISCORD_GUILD_ID, DISCORD_GM_ROLE_IDS, DISCORD_GESTION_ROLE_IDS,
-// DISCORD_ROLE_IDS (officiers), DISCORD_POSTULANT_ROLE_IDS, DISCORD_MEMBRE_ROLE_IDS.
+// DISCORD_ROLE_IDS (officiers), DISCORD_POSTULANT_ROLE_IDS, DISCORD_MEMBRE_ROLE_IDS ; à ajouter : DISCORD_INVITE_ROLE_IDS.
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const ORIGINES = ["https://le-royaume.fr"];
@@ -42,7 +43,9 @@ Deno.serve(async (req) => {
   const GRADES: [string, string[]][] = [
     ["gm", roles("DISCORD_GM_ROLE_IDS")],
     ["officier", [...roles("DISCORD_ROLE_IDS"), ...roles("DISCORD_GESTION_ROLE_IDS")]],
-    ["postulant", roles("DISCORD_POSTULANT_ROLE_IDS")], // avant membre : la liste des rôles membres peut l'inclure
+    // avant membre : la liste des rôles membres peut les inclure
+    ["postulant", roles("DISCORD_POSTULANT_ROLE_IDS")],
+    ["invite", roles("DISCORD_INVITE_ROLE_IDS")],
     ["membre", roles("DISCORD_MEMBRE_ROLE_IDS")],
   ];
 
@@ -58,7 +61,7 @@ Deno.serve(async (req) => {
     const page = await r.json();
     for (const m of page) {
       if (!m.user.bot) {
-        const grade = GRADES.find(([, ids]) => m.roles.some((id: string) => ids.includes(id)))?.[0] ?? "invite";
+        const grade = GRADES.find(([, ids]) => m.roles.some((id: string) => ids.includes(id)))?.[0] ?? "sans_role";
         lignes.push({
           joueur: m.user.id, pseudo: m.nick ?? m.user.global_name ?? m.user.username, grade,
           arrivee: m.joined_at, maj,
@@ -70,7 +73,7 @@ Deno.serve(async (req) => {
   }
 
   // aucun joueur de la guilde : secrets de rôles vides ou réponse anormale, le roster n'est pas vidé
-  if (!lignes.some((l) => l.grade !== "invite")) return json({ erreur: "aucun membre avec un rôle de la guilde" }, 502);
+  if (!lignes.some((l) => l.grade !== "sans_role")) return json({ erreur: "aucun membre avec un rôle de la guilde" }, 502);
   const { error: e1 } = await admin.from("roster").upsert(lignes);
   if (e1) return json({ erreur: e1.message }, 500);
   // pas revu lors de cette synchronisation : parti du serveur
