@@ -475,12 +475,5 @@ alter table public.roster enable row level security;
 drop policy if exists lire on public.roster;
 create policy lire on public.roster for select using ((select public.est_membre()));
 
--- Joueurs du roster pas encore signataires de la charte (officiers et gestion du site).
-drop function if exists public.non_signataires(text);
-create or replace function public.non_signataires() returns setof text
-language sql stable security definer set search_path = '' as $$
-  select r.pseudo from public.roster r
-  where (public.est_officier() or public.est_gestion())
-    and not exists (select 1 from public.signatures s where s.joueur = r.joueur)
-  order by lower(r.pseudo)
-$$;
+-- non_signataires() remplacée par la liste roster + signatures de l'espace
+drop function if exists public.non_signataires();
