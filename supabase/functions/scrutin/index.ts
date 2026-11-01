@@ -49,7 +49,9 @@ Deno.serve(async (req) => {
   const { ouvrir, clore } = (await req.json().catch(() => null)) ?? {};
   // mode essai (réglage vote_test : identifiants Discord séparés par des virgules) : MP envoyés à ces seuls comptes,
   // résultat marqué « Essai » ; réglage supprimé = fonctionnement normal
-  const { data: essai } = await admin.from("reglages").select("valeur").eq("cle", "vote_test").maybeSingle();
+  const { data: essai, error: e0 } = await admin.from("reglages").select("valeur").eq("cle", "vote_test").maybeSingle();
+  // réglage illisible : rien n'est fait (sinon un essai enverrait les MP à tout le serveur)
+  if (e0) return json({ erreur: "réglage vote_test illisible : " + e0.message }, 500);
   const testeurs = essai?.valeur.split(",").map((s: string) => s.trim()).filter(Boolean);
   const marque = testeurs ? "🧪 Essai · " : "";
 
