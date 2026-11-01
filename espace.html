@@ -98,6 +98,7 @@
         return contenu.replaceChildren(blocCharte);
       }
       chargerAbsences();
+      chargerVotes();
       afficher(`Bienvenue ${data.pseudo}${data.gestion ? ', accès gestion du site confirmé' : data.autorise ? ', accès officier confirmé' : ''}.`, bouton('Se déconnecter', '', deconnexion));
 
       calendrier(); // tout de suite depuis la base ; redessiné si la synchronisation apporte du nouveau
@@ -155,7 +156,7 @@
         el('div', { className: 'cal' },
           ...['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.'].map(j => el('div', { className: 'jsem', textContent: j })),
           ...cases),
-        blocAbsences, blocCharte);
+        blocVotes, blocAbsences, blocCharte);
     }
 
     // choix de l'interface selon les rôles : membre pour tous, officier (appel, loots), gestion du site (statistiques)
@@ -169,6 +170,7 @@
       vue = v; officier = v === 'officier';
       if (v === 'gestion') return gestion();
       chargerAbsences();
+      chargerVotes();
       chargerCharte();
       calendrier();
     };
@@ -626,19 +628,22 @@
 
     // Recrues (officiers) : postulants du plus ancien au plus récent, puis comptes sans rôle (veulent en général
     // intégrer la guilde), avec charte, présence depuis le début et demande de passage
-    async function recrues() {
-      const [{ data: roster, error }, { data: stats }, { data: signes }] = await Promise.all([
+    async function recrues(note) {
+      const [{ data: roster, error }, { data: stats }, { data: signes }, { data: scrutins }] = await Promise.all([
         sb.from('roster').select('joueur, pseudo, grade, arrivee, demande_passage').in('grade', ['postulant', 'sans_role']).order('arrivee'),
-        sb.rpc('stats_joueurs', { depuis: null }), sb.from('signatures').select('joueur, le')]);
-      const haut = [fermer(), el('h2', { textContent: 'Recrues' })];
+        sb.rpc('stats_joueurs', { depuis: null }), sb.from('signatures').select('joueur, le'),
+        sb.from('scrutins').select('*').order('ouvert_le', { ascending: false }).limit(20)]);
+      const haut = [fermer(), el('h2', { textContent: 'Recrues' }), typeof note === 'string' && el('p', { className: 'vide', textContent: note })];
       if (error) return ouvrir(...haut, el('p', { textContent: 'Recrues indisponibles : ' + error.message }));
+      const ouverts = (scrutins ?? []).filter(s => !s.clos_le), clos = (scrutins ?? []).filter(s => s.clos_le);
+      const enCours = new Set(ouverts.map(s => s.candidat));
       const parJoueur = new Map((stats ?? []).map(r => [r.joueur, completer(r)]));
       const signe = new Map((signes ?? []).map(g => [g.joueur, g.le]));
       const date = d => new Date(d).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' });
       const groupe = (grade, titre, vide) => {
         const liste = roster.filter(m => m.grade === grade), postulants = grade === 'postulant';
         return [el('h3', { textContent: `${titre} (${liste.length})` }), liste.length ? el('div', { className: 'stats' }, el('table', {},
-          el('thead', {}, el('tr', {}, ...['Joueur', 'Arrivée sur le Discord', 'Charte', 'Présence', ...(postulants ? ['Demande de passage'] : [])]
+          el('thead', {}, el('tr', {}, ...['Joueur', 'Arrivée sur le Discord', 'Charte', 'Présence', ...(postulants ? ['Demande de passage', 'Vote'] : [])]
             .map(t => el('th', { textContent: t })))),
           el('tbody', {}, ...liste.map(m => {
             const r = parJoueur.get(m.joueur);
@@ -647,12 +652,83 @@
               el('td', { textContent: m.arrivee ? `${date(m.arrivee)} (${Math.floor((Date.now() - Date.parse(m.arrivee)) / 86400e3)} j)` : '–' }),
               el('td', { textContent: signe.has(m.joueur) ? 'Signée le ' + date(signe.get(m.joueur)) : 'Non signée' }),
               el('td', { textContent: r?.dispo ? `${r.presents} soirée(s) en raid · ${pourcent(r.presents, r.dispo)} %` : 'Aucune soirée' }),
-              postulants && el('td', { textContent: m.demande_passage ? date(m.demande_passage) : '–' }));
+              postulants && el('td', { textContent: m.demande_passage ? date(m.demande_passage) : '–' }),
+              postulants && el('td', {}, enCours.has(m.joueur) ? 'En cours' : bouton('Ouvrir un vote', m.demande_passage ? 'discord' : '', ouvrirVote(m))));
           }))))
           : el('p', { className: 'vide', textContent: vide })];
       };
       ouvrir(...haut, ...groupe('postulant', 'Postulants', 'Aucun postulant pour le moment.'),
+        ...await votesOfficiers(ouverts, clos),
         ...groupe('sans_role', 'Sans rôle sur le Discord', 'Aucun compte sans rôle.'));
+    }
+
+    // Vote de passage membre (officiers) : l'Edge Function scrutin envoie les MP du bot à l'ouverture et les ferme à la
+    // clôture ; décompte et commentaires sans nom (vote anonyme). Le rôle Discord reste à changer à la main.
+    const CHOIX = { pour: '✅ Pour', contre: '❌ Contre', abstention: '➖ Ne se prononce pas' };
+    const erreurDe = async error => (await error.context?.json?.().then(d => d.erreur, () => null)) ?? error.message;
+    const ouvrirVote = m => async e => {
+      if (!confirm(`Ouvrir le vote pour le passage membre de ${m.pseudo} ? Le bot enverra un MP à chaque membre, officier et au chef de guilde.`)) return;
+      e.target.disabled = true; e.target.textContent = 'Envoi des MP…';
+      const { data, error } = await sb.functions.invoke('scrutin', { body: { ouvrir: m.joueur } });
+      recrues(error ? `Ouverture du vote impossible : ${await erreurDe(error)}.`
+        : `Vote ouvert : ${data.envoyes} MP envoyé(s)${data.echecs ? `, ${data.echecs} non reçu(s) (MP fermés : ces joueurs votent sur le site)` : ''}.`);
+    };
+    const clore = s => async e => {
+      if (!confirm(`Clôturer le vote pour ${s.pseudo} ? Plus personne ne pourra voter.`)) return;
+      e.target.disabled = true; e.target.textContent = 'Clôture…';
+      const { data, error } = await sb.functions.invoke('scrutin', { body: { clore: s.id } });
+      recrues(error ? `Clôture impossible : ${await erreurDe(error)}.`
+        : `Vote clos pour ${s.pseudo} : ${data.pour} pour, ${data.contre} contre, ${data.abstention} ne se prononce(nt) pas.${data.annonce ? '' : " Le résultat n'a pas pu être posté sur Discord."}`);
+    };
+    async function votesOfficiers(ouverts, clos) {
+      const decomptes = await Promise.all(ouverts.map(s => sb.rpc('decompte', { s: s.id }).single()));
+      const date = d => new Date(d).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' });
+      return [el('h3', { textContent: `Votes en cours (${ouverts.length})` }),
+        ...(ouverts.length ? ouverts.map((s, i) => {
+          const d = decomptes[i].data;
+          return el('div', { className: 'vote' }, el('h4', { textContent: s.pseudo }),
+            el('p', { className: 'vide', textContent: `Ouvert le ${date(s.ouvert_le)} par ${s.ouvert_par}${s.mp_echecs ? ` · ${s.mp_echecs} MP non reçu(s)` : ''}` }),
+            d ? el('p', { textContent: `${CHOIX.pour} ${d.pour} · ${CHOIX.contre} ${d.contre} · ${CHOIX.abstention} ${d.abstention} · ${d.votants} votant(s) sur ${d.electeurs}` })
+              : el('p', { textContent: 'Décompte indisponible pour le moment.' }),
+            d?.commentaires?.length ? el('ul', {}, ...d.commentaires.map(c => el('li', { textContent: c }))) : el('p', { className: 'vide', textContent: 'Aucun commentaire.' }),
+            el('p', {}, bouton('Clôturer le vote', '', clore(s))));
+        }) : [el('p', { className: 'vide', textContent: "Aucun vote en cours. « Ouvrir un vote » sur un postulant envoie un MP du bot à chaque votant." })]),
+        clos.length > 0 && el('h3', { textContent: 'Votes clos' }),
+        clos.length > 0 && el('div', { className: 'stats' }, el('table', {},
+          el('thead', {}, el('tr', {}, ...['Postulant', 'Clos le', 'Pour', 'Contre', 'Ne se prononce pas', 'Clos par'].map(t => el('th', { textContent: t })))),
+          el('tbody', {}, ...clos.map(s => el('tr', {}, ...[s.pseudo, date(s.clos_le), s.pour, s.contre, s.abstention, s.clos_par].map(v => el('td', { textContent: v ?? '–' })))))))];
+    }
+
+    // Votes en cours (membres, officiers, chef de guilde) : un vote par personne, modifiable jusqu'à la clôture, et un
+    // commentaire facultatif pour les officiers, sans nom ; même vote que par les boutons du MP du bot
+    const blocVotes = el('section', { className: 'absences' });
+    let demandeVotes = 0;
+    async function chargerVotes() {
+      const n = ++demandeVotes;
+      const [{ data: ouverts, error }, { data: mes }] = await Promise.all([
+        sb.from('scrutins').select('id, pseudo').is('clos_le', null).order('ouvert_le'),
+        sb.from('votes').select('scrutin, choix, commentaire').eq('votant', moi)]);
+      if (n !== demandeVotes) return;
+      if (error || !ouverts.length) return blocVotes.replaceChildren();
+      const mien = new Map((mes ?? []).map(v => [v.scrutin, v]));
+      blocVotes.replaceChildren(el('h2', { textContent: 'Votes en cours' }), ...ouverts.map(s => {
+        const v = mien.get(s.id) ?? {};
+        const message = el('p', { className: 'vide' });
+        const enregistrer = async args => {
+          const { error } = await sb.rpc('voter', { s: s.id, ...args });
+          if (error) return message.textContent = "L'enregistrement a échoué : " + error.message;
+          chargerVotes();
+        };
+        const com = el('textarea', { value: v.commentaire ?? '', maxLength: 1000, rows: 2, ariaLabel: 'Commentaire',
+          placeholder: 'Commentaire pour les officiers (facultatif, anonyme)' });
+        return el('div', { className: 'vote' }, el('h3', { textContent: `Passage membre de ${s.pseudo}` }),
+          el('p', {}, ...Object.entries(CHOIX).map(([c, t]) => Object.assign(bouton(t, v.choix === c ? 'discord' : '', () => enregistrer({ c })),
+            { ariaPressed: String(v.choix === c) }))),
+          el('p', { className: 'vide', textContent: (v.choix ? `Votre vote : ${CHOIX[v.choix]}.` : "Vous n'avez pas encore voté.")
+            + " Vote anonyme, modifiable jusqu'à la clôture (aussi par les boutons du MP du bot)." }),
+          el('p', {}, com, ' ', bouton(v.commentaire ? 'Modifier le commentaire' : 'Enregistrer le commentaire', '', () => enregistrer({ com: com.value }))),
+          message);
+      }));
     }
 
     // Absences longues : chacun déclare les siennes ; l'interface officier montre celles de tous, en lecture seule

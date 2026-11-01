@@ -194,7 +194,7 @@ button.btn { background: transparent; color: var(--gold); font-size: 1rem; curso
 .ligne label { display: inline-block; margin: 4px 14px 4px 0; white-space: nowrap; }
 .ligne .min input { width: 4.5em; }
 .ligne:not(:has(input[value=retard]:checked)) .min { display: none; }
-.espace input[type=text], .espace input[type=number], .espace input[type=date] { padding: 6px 8px; font: inherit; background: var(--bg); color: var(--text); border: 1px solid var(--gold-dark); border-radius: 4px; }
+.espace input[type=text], .espace input[type=number], .espace input[type=date], .espace textarea { padding: 6px 8px; font: inherit; background: var(--bg); color: var(--text); border: 1px solid var(--gold-dark); border-radius: 4px; }
 .retirer { margin-left: 8px; width: 24px; height: 24px; padding: 0; font-size: 1rem; line-height: 1; color: var(--muted); background: none; border: 1px solid var(--gold-dark); border-radius: 50%; cursor: pointer; vertical-align: middle; }
 .retirer:hover { color: #e06c5a; border-color: #e06c5a; }
 
@@ -277,3 +277,6 @@ button.btn { background: transparent; color: var(--gold); font-size: 1rem; curso
 .d-vignette { width: 64px; height: 64px; border-radius: 4px; object-fit: cover; }
 .d-mention { padding: 0 2px; color: #c9cdfb; background: rgba(88, 101, 242, .3); border-radius: 3px; }
 .d-date { padding: 0 2px; background: rgba(255, 255, 255, .06); border-radius: 3px; }
+.espace textarea { width: min(100%, 480px); vertical-align: middle; }
+.vote { margin: 16px 0; }
+.vote .btn { margin: 2px 4px 2px 0; }

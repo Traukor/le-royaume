@@ -509,3 +509,87 @@ begin
   if le is null then raise exception 'réservé aux postulants'; end if;
   return le;
 end $$;
+
+-- Vote de passage membre (étape 3) : les officiers ouvrent un vote pour un postulant puis le clôturent
+-- (Edge Function scrutin, qui envoie et ferme les MP du bot). Votent les membres, officiers et le chef de guilde du roster,
+-- sur le site (voter) ou par les boutons du MP (Edge Function interactions-discord). Vote anonyme : chacun ne lit que
+-- son vote ; les officiers lisent le décompte et les commentaires sans nom (decompte).
+create table if not exists public.scrutins (
+  id         bigint generated always as identity primary key,
+  candidat   text not null,  -- identifiant Discord du postulant
+  pseudo     text not null,
+  ouvert_le  timestamptz not null default now(),
+  ouvert_par text not null,
+  mp_echecs  int not null default 0, -- MP que le bot n'a pas pu envoyer (MP fermés)
+  clos_le    timestamptz,
+  clos_par   text,
+  pour int, contre int, abstention int -- décompte final, figé à la clôture (journal des décisions, étape 5)
+);
+create unique index if not exists scrutins_un_ouvert on public.scrutins (candidat) where clos_le is null;
+
+create table if not exists public.votes (
+  scrutin     bigint not null references public.scrutins on delete cascade,
+  votant      text not null,  -- identifiant Discord
+  choix       text check (choix in ('pour', 'contre', 'abstention')), -- null : pas encore voté
+  commentaire text check (length(commentaire) <= 1000),
+  le          timestamptz,
+  salon       text, message text, -- MP du bot (fermé à la clôture)
+  primary key (scrutin, votant)
+);
+
+-- membre, officier ou chef de guilde du roster (pas les postulants, invités ni comptes sans rôle)
+create or replace function public.est_votant() returns boolean
+language sql stable security definer set search_path = '' as $$
+  select public.est_membre() and exists (select 1 from public.roster where joueur = public.mon_discord() and grade in ('gm', 'officier', 'membre'))
+$$;
+
+alter table public.scrutins enable row level security;
+drop policy if exists lire on public.scrutins;
+create policy lire on public.scrutins for select using ((select public.est_officier()) or (clos_le is null and (select public.est_votant())));
+alter table public.votes enable row level security;
+drop policy if exists lire on public.votes;
+create policy lire on public.votes for select using (votant = (select public.mon_discord()));
+
+-- choix ou commentaire null : inchangé ; commentaire vide : effacé. Réservée au serveur (voter, interactions-discord).
+create or replace function public.enregistrer_vote(s bigint, qui text, c text, com text) returns void
+language plpgsql security definer set search_path = '' as $$
+begin
+  if not exists (select 1 from public.scrutins where id = s and clos_le is null) then raise exception 'ce vote est clos'; end if;
+  if not exists (select 1 from public.roster where joueur = qui and grade in ('gm', 'officier', 'membre')) then
+    raise exception 'réservé aux membres de la guilde';
+  end if;
+  insert into public.votes as v (scrutin, votant, choix, commentaire, le) values (s, qui, c, nullif(trim(com), ''), now())
+  on conflict (scrutin, votant) do update set choix = coalesce(excluded.choix, v.choix),
+    commentaire = case when com is null then v.commentaire else excluded.commentaire end, le = now();
+end $$;
+revoke execute on function public.enregistrer_vote(bigint, text, text, text) from public, anon, authenticated;
+
+create or replace function public.voter(s bigint, c text default null, com text default null) returns void
+language plpgsql security definer set search_path = '' as $$
+begin
+  if not public.est_membre() then raise exception 'réservé aux membres de la guilde'; end if;
+  perform public.enregistrer_vote(s, public.mon_discord(), c, com);
+end $$;
+
+-- officiers : décompte et commentaires (sans nom, dans un ordre aléatoire)
+create or replace function public.decompte(s bigint)
+returns table (pour int, contre int, abstention int, votants int, electeurs int, commentaires text[])
+language sql stable security definer set search_path = '' as $$
+  select count(*) filter (where choix = 'pour')::int, count(*) filter (where choix = 'contre')::int,
+         count(*) filter (where choix = 'abstention')::int, count(choix)::int,
+         (select count(*)::int from public.roster where grade in ('gm', 'officier', 'membre')),
+         array_agg(commentaire order by random()) filter (where commentaire is not null)
+  from public.votes where scrutin = s and public.est_officier()
+$$;
+
+-- clôture (Edge Function scrutin) : décompte figé en une seule instruction ; aucune ligne si déjà clos
+drop function if exists public.clore(bigint, text);
+create function public.clore(s bigint, par text) returns setof public.scrutins
+language sql security definer set search_path = '' as $$
+  update public.scrutins set clos_le = now(), clos_par = par,
+    pour = (select count(*) from public.votes where scrutin = s and choix = 'pour'),
+    contre = (select count(*) from public.votes where scrutin = s and choix = 'contre'),
+    abstention = (select count(*) from public.votes where scrutin = s and choix = 'abstention')
+  where id = s and clos_le is null returning *
+$$;
+revoke execute on function public.clore(bigint, text) from public, anon, authenticated;
