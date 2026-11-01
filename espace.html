@@ -663,8 +663,8 @@
         // signataires partis du Discord ; ordre alphabétique dans chaque grade
         const signature = new Map(signes.map(g => [g.joueur, g]));
         const duRoster = new Set(roster.map(m => m.joueur));
-        const comptes = [...roster.map(m => ({ pseudo: m.pseudo, grade: GRADES[m.grade], signe: signature.get(m.joueur), requise: m.grade !== 'invite' })),
-          ...signes.filter(g => !duRoster.has(g.joueur)).map(g => ({ pseudo: g.nom ?? '?', grade: 'Parti du Discord', signe: g, requise: true }))]
+        const comptes = [...roster.map(m => ({ joueur: m.joueur, pseudo: m.pseudo, grade: GRADES[m.grade], signe: signature.get(m.joueur), requise: m.grade !== 'invite' })),
+          ...signes.filter(g => !duRoster.has(g.joueur)).map(g => ({ joueur: g.joueur, pseudo: g.nom ?? '?', grade: 'Parti du Discord', signe: g, requise: true }))]
           .sort((a, b) => rang(a) - rang(b) || a.pseudo.localeCompare(b.pseudo, 'fr'));
         const date = d => new Date(d).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' });
         return blocCharte.replaceChildren(titre,
@@ -672,12 +672,15 @@
           el('div', { className: 'stats' }, el('table', {},
             el('thead', {}, el('tr', {}, ...['Joueur', 'Grade', 'Charte', ...(gere ? [''] : [])].map(t => el('th', { textContent: t })))),
             el('tbody', {}, ...comptes.map(c => el('tr', {},
-              el('td', { textContent: c.pseudo }), el('td', { textContent: c.grade }),
+              // officiers : le pseudo ouvre la fiche du joueur (présence, loots, notes des officiers)
+              el('td', {}, gere ? c.pseudo : el('button', { className: 'lien', type: 'button', textContent: c.pseudo, onclick: () => suivi(c.joueur, c.pseudo) })),
+              el('td', { textContent: c.grade }),
               el('td', { textContent: c.signe ? 'Signée le ' + date(c.signe.le) : c.requise ? 'Non signée' : 'Non requise' }),
               gere && el('td', {}, c.signe && el('button', { className: 'retirer', type: 'button', textContent: '×', title: 'Retirer la signature',
                 ariaLabel: 'Retirer la signature de ' + c.pseudo, onclick: retirer(c.signe) }))))))),
           message,
-          el('p', { className: 'vide', textContent: "Comptes du serveur Discord et leur grade selon leurs rôles. Invité : joueur d'une autre guilde invité en raid, la charte ne le concerne pas." }));
+          el('p', { className: 'vide', textContent: "Comptes du serveur Discord et leur grade selon leurs rôles. Invité : joueur d'une autre guilde invité en raid, la charte ne le concerne pas."
+            + (gere ? '' : ' Cliquez sur un joueur pour ouvrir sa fiche (présence, loots, notes des officiers).') }));
       }
       const [{ data, error }, { data: maLigne }] = await Promise.all([
         sb.from('signatures').select('le, annoncee').eq('joueur', moi).maybeSingle(),
