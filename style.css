@@ -275,6 +275,8 @@ button.btn { background: transparent; color: var(--gold); font-size: 1rem; curso
 .d-champs > div { flex-basis: 100%; }
 .d-champs > .d-ligne { flex: 1 1 40%; }
 .d-vignette { width: 64px; height: 64px; border-radius: 4px; object-fit: cover; }
+.communication input, .communication textarea { box-sizing: border-box; width: 100%; max-width: 640px; }
+.communication .d-message { max-width: 520px; margin: 0 auto; text-align: left; }
 .d-image { display: block; max-width: 100%; margin-top: 8px; border-radius: 4px; }
 .d-boutons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px !important; }
 .d-boutons a { padding: 4px 12px; color: #dbdee1; background: #4e5058; border-radius: 3px; text-decoration: none; }

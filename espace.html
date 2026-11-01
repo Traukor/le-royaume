@@ -240,7 +240,7 @@ Connectez-vous, approuvez la charte si ce n'est pas encore fait, et faites le to
         envoyer.disabled = false;
         if (d) message.textContent = `Message envoyé à ${d.envoyes} personne(s).` + (d.echecs.length ? ` Échec (MP fermés) pour : ${d.echecs.join(', ')}.` : '');
       });
-      return el('div', {}, el('p', { textContent: 'MP envoyé par le bot aux membres, officiers et au chef de guilde du roster. Markdown Discord accepté (**gras**, *italique*).' }),
+      return el('div', { className: 'communication' }, el('p', { textContent: 'MP envoyé par le bot aux membres, officiers et au chef de guilde du roster. Markdown Discord accepté (**gras**, *italique*).' }),
         el('p', {}, titre), el('p', {}, texte), el('p', {}, voir, ' ', essai, ' ', envoyer), message, zone);
     }
 
