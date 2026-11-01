@@ -148,7 +148,7 @@
         interfaces(),
         el('p', { className: 'outils' }, !officier && bouton('Mon suivi', '', suivi),
           bouton(officier ? 'Loots' : 'Mes loots', '', historique),
-          officier && bouton('Stats joueurs', '', statsJoueurs), officier && bouton('Recrues', '', recrues), officier && bouton('Actualiser', '', actualiser)),
+          officier && bouton('Stats joueurs', '', statsJoueurs), officier && bouton('Recrues', '', recrues), officier && bouton('Inactifs', '', inactifs), officier && bouton('Actualiser', '', actualiser)),
         el('div', { className: 'cal-tete' },
           el('button', { className: 'nav-mois', textContent: '‹', ariaLabel: 'Mois précédent', onclick: changer(-1) }),
           el('h2', { textContent: mois.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) }),
@@ -660,6 +660,57 @@
       ouvrir(...haut, ...groupe('postulant', 'Postulants', 'Aucun postulant pour le moment.'),
         ...await votesOfficiers(ouverts, clos, recrues),
         ...groupe('sans_role', 'Sans rôle sur le Discord', 'Aucun compte sans rôle.'));
+    }
+
+    // Inactifs (officiers) : joueurs du roster (chef de guilde, officiers, membres, postulants) sans présence à l'appel
+    // (Présent, Retard ou Banc) depuis plus de X semaines, ou jamais appelés. Le délai compte au plus tôt depuis le début
+    // du suivi (par défaut la première soirée appelée) et l'arrivée sur le Discord : personne n'est inactif dès le départ.
+    async function inactifs() {
+      const [{ data: roster, error }, { data: appel, error: e2 }, { data: absences }, { data: reglages }] = await Promise.all([
+        sb.from('roster').select('joueur, pseudo, grade, arrivee').in('grade', ['gm', 'officier', 'membre', 'postulant']),
+        tout(() => sb.from('appel').select('joueur, sortie_id, sorties(debut)').in('etat', ['present', 'retard', 'banc']).order('sortie_id').order('joueur')),
+        sb.from('absences').select('joueur, du, au').lte('du', jourParis(Date.now())).gte('au', jourParis(Date.now())),
+        sb.from('reglages').select('cle, valeur').in('cle', ['inactivite_semaines', 'inactivite_debut'])]);
+      const haut = [fermer(), el('h2', { textContent: 'Inactifs' })];
+      if (error || e2) return ouvrir(...haut, el('p', { textContent: 'Inactifs indisponibles : ' + (error ?? e2).message }));
+      const reglage = Object.fromEntries((reglages ?? []).map(r => [r.cle, r.valeur]));
+      const derniere = new Map();
+      for (const a of appel) if (a.sorties && !(derniere.get(a.joueur) > a.sorties.debut)) derniere.set(a.joueur, a.sorties.debut);
+      const premiere = appel.reduce((m, a) => a.sorties && (!m || a.sorties.debut < m) ? a.sorties.debut : m, null);
+      const semaines = +reglage.inactivite_semaines || 4;
+      const debut = reglage.inactivite_debut || (premiere ? jourParis(premiere) : jourParis(Date.now()));
+      const absent = new Map((absences ?? []).map(a => [a.joueur, a.au]));
+      const date = d => new Date(d).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' });
+
+      // délai depuis la référence la plus récente : dernière présence, début du suivi, arrivée sur le Discord
+      const limite = Date.now() - semaines * 7 * 86400e3;
+      const liste = roster.map(m => ({ ...m, vu: derniere.get(m.joueur),
+        ref: Math.max(...[derniere.get(m.joueur), debut + 'T00:00', m.arrivee].filter(Boolean).map(Date.parse)) }))
+        .filter(m => m.ref < limite).sort((a, b) => a.ref - b.ref || a.pseudo.localeCompare(b.pseudo, 'fr'));
+
+      const message = el('p', { className: 'vide' });
+      const enregistrer = (cle, valeur) => async () => {
+        const { error } = await sb.from('reglages').upsert({ cle, valeur });
+        if (error) return message.textContent = "L'enregistrement a échoué : " + error.message;
+        inactifs();
+      };
+      const champSemaines = el('input', { type: 'number', min: 1, max: 52, value: semaines, ariaLabel: 'Semaines sans présence' });
+      champSemaines.onchange = () => champSemaines.value >= 1 && enregistrer('inactivite_semaines', String(Math.round(champSemaines.value)))();
+      const champDebut = el('input', { type: 'date', value: debut, max: jourParis(Date.now()), ariaLabel: 'Début du suivi' });
+      champDebut.onchange = () => champDebut.value && enregistrer('inactivite_debut', champDebut.value)();
+      ouvrir(...haut,
+        el('p', {}, 'Sans présence à l’appel depuis plus de ', champSemaines, ' semaines · suivi depuis le ', champDebut),
+        message,
+        el('p', { className: 'vide', textContent: `Présence : Présent, Retard ou Banc. Un joueur jamais appelé compte à partir du début du suivi (par défaut la première soirée appelée) ou de son arrivée sur le Discord si elle est plus récente. Réglages communs à tous les officiers.` }),
+        liste.length ? el('div', { className: 'stats' }, el('table', {},
+          el('thead', {}, el('tr', {}, ...['Joueur', 'Grade', 'Dernière présence', 'Sans présence depuis', 'Absence déclarée'].map(t => el('th', { textContent: t })))),
+          el('tbody', {}, ...liste.map(m => el('tr', {},
+            el('td', {}, el('button', { className: 'lien', type: 'button', textContent: m.pseudo, onclick: () => suivi(m.joueur, m.pseudo, inactifs) })),
+            el('td', { textContent: GRADES[m.grade] }),
+            el('td', { textContent: m.vu ? date(m.vu) : 'Jamais appelé' }),
+            el('td', { textContent: `${Math.floor((Date.now() - m.ref) / (7 * 86400e3))} semaines (compté depuis le ${date(m.ref)})` }),
+            el('td', { textContent: absent.has(m.joueur) ? `Absent jusqu'au ${date(absent.get(m.joueur) + 'T12:00')}` : '–' }))))))
+          : el('p', { textContent: 'Aucun joueur inactif.' }));
     }
 
     // Vote de passage membre (officiers) : l'Edge Function scrutin envoie les MP du bot à l'ouverture et les ferme à la

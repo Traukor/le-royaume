@@ -593,3 +593,11 @@ language sql security definer set search_path = '' as $$
   where id = s and clos_le is null returning *
 $$;
 revoke execute on function public.clore(bigint, text) from public, anon, authenticated;
+
+-- Inactivité (étape 4) : réglages de la fenêtre « Inactifs », modifiables par les officiers.
+-- inactivite_semaines : délai sans présence à l'appel (4 par défaut) ; inactivite_debut : début du suivi (AAAA-MM-JJ,
+-- par défaut la première soirée appelée), un joueur jamais appelé n'est pas inactif avant ce délai après cette date.
+drop policy if exists inactivite on public.reglages;
+create policy inactivite on public.reglages for all
+  using ((select public.est_officier()) and cle in ('inactivite_semaines', 'inactivite_debut'))
+  with check ((select public.est_officier()) and cle in ('inactivite_semaines', 'inactivite_debut'));
