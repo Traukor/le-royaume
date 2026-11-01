@@ -177,9 +177,9 @@
 
     // Gestion du site : comptes connus de l'espace (la base vérifie le rôle de gestion)
     async function gestion() {
-      const [{ data, error }, { data: modeles, error: e2 }, { data: reglage, error: e3 }] = await Promise.all([sb.rpc('comptes'),
+      const [{ data, error }, { data: modeles, error: e2 }, { data: reglage, error: e3 }, notes] = await Promise.all([sb.rpc('comptes'),
         sb.functions.invoke('annoncer-signature', { body: { apercu: true } }),
-        sb.from('reglages').select('valeur').eq('cle', 'annonce_signature').maybeSingle()]);
+        sb.from('reglages').select('valeur').eq('cle', 'annonce_signature').maybeSingle(), notesGestion()]);
       if (vue !== 'gestion') return;
       const niveau = c => c.gestion ? 'Gestion' : c.officier ? 'Officier' : c.membre ? 'Membre' : c.serveur ? 'Invité (sans rôle)' : 'Hors du Discord';
       contenu.replaceChildren(interfaces(), el('h2', { textContent: 'Comptes connus' }),
@@ -189,7 +189,7 @@
         el('p', { className: 'vide', textContent: "Accès relu sur le Discord à chaque ouverture de l'espace." }),
         el('h2', { textContent: 'Annonce des signatures' }),
         e2 ? el('p', { textContent: 'Modèles indisponibles pour le moment.' }) : annonces(modeles, e3 ? null : Object.hasOwn(MODELES, reglage?.valeur ?? '') ? reglage.valeur : 'sobre') /* comme le bot */,
-        blocCharte);
+        ...notes, blocCharte);
       chargerCharte();
     }
 
@@ -512,7 +512,7 @@
         sb.from('appel').select('etat, retard_min, sorties(titre, debut)').eq('joueur', joueur),
         fiche ? sb.from('loots').select('*, sorties(titre)').eq('joueur', joueur).order('le', { ascending: false }) : { data: [] },
         joueur.startsWith('nom:') ? sb.from('roster').select('joueur, pseudo') : { data: [] },
-        officier && fiche ? sb.from('notes').select('*').eq('joueur', joueur).order('le', { ascending: false }) : { data: null }]);
+        officier ? sb.from('notes').select('*').eq('joueur', joueur).order('le', { ascending: false }) : { data: null }]);
       if (error) return ouvrir(...haut, el('p', { textContent: 'Suivi indisponible : ' + error.message }));
       const pct = (a, b) => b ? Math.round(100 * a / b) + ' %' : null;
       const periode = (titre, r) => { r = completer(r ?? {}); return el('tr', {}, ...[titre, r.toutes, r.dispo,
@@ -553,18 +553,26 @@
           : el('p', { textContent: 'Aucun loot.' })));
     }
 
-    // Notes des officiers sur un joueur (dans sa fiche) : lisibles par tous les officiers, ou cachées (lisibles par leur
-    // seul auteur, la base l'impose) ; seul l'auteur supprime
+    // Notes des officiers sur un joueur (dans sa fiche, la sienne comprise) : une note d'officiers se lit, se modifie et se
+    // supprime par tous les officiers (trace gardée en base) ; une note cachée seulement par son auteur (la base l'impose)
     function notesJoueur(joueur, notes, recharger) {
-      const texte = el('textarea', { rows: 2, maxLength: 4000, placeholder: 'Nouvelle note', ariaLabel: 'Nouvelle note' });
+      let edition = null; // note en cours de modification
+      const texte = el('textarea', { rows: 2, maxLength: 4000, placeholder: 'Nouvelle note', ariaLabel: 'Note' });
       const cachee = el('input', { type: 'checkbox' });
       const message = el('p', { className: 'vide' });
-      const ajouter = bouton('Ajouter la note', '', async () => {
+      const valider = bouton('Ajouter la note', '', async () => {
         if (!texte.value.trim()) return message.textContent = 'La note est vide.';
-        const { error } = await sb.from('notes').insert({ joueur, texte: texte.value.trim(), cachee: cachee.checked });
+        const ligne = { texte: texte.value.trim(), cachee: cachee.checked };
+        const { error } = await (edition ? sb.from('notes').update(ligne).eq('id', edition.id) : sb.from('notes').insert({ joueur, ...ligne }));
         if (error) return message.textContent = "L'enregistrement a échoué : " + error.message;
         recharger();
       });
+      const annuler = Object.assign(bouton('Annuler', '', recharger), { hidden: true });
+      const modifier = n => () => {
+        edition = n; texte.value = n.texte; cachee.checked = n.cachee;
+        cachee.disabled = n.auteur !== moi; // seul l'auteur cache ou montre sa note
+        valider.textContent = 'Enregistrer la modification'; annuler.hidden = false; texte.focus();
+      };
       const supprimer = n => async () => {
         if (!confirm('Supprimer cette note ?')) return;
         const { error } = await sb.from('notes').delete().eq('id', n.id);
@@ -573,11 +581,38 @@
       };
       return el('section', {}, el('h3', { textContent: 'Notes des officiers' }),
         notes.length ? el('ul', { className: 'notes' }, ...notes.map(n => el('li', {},
-          el('p', { className: 'vide' }, `${quand(n.le)} · ${n.auteur_nom ?? '?'}${n.cachee ? ' · 🔒 cachée, visible de vous seul' : ''} `,
-            n.auteur === moi && el('button', { className: 'lien', type: 'button', textContent: 'Supprimer', onclick: supprimer(n) })),
+          el('p', { className: 'vide' }, `${quand(n.le)} · ${n.auteur_nom ?? '?'}${n.cachee ? ' · 🔒 note perso, visible de vous seul' : ''}`
+            + (n.modifie_le ? ` · modifiée le ${quand(n.modifie_le)} par ${n.modifie_par ?? '?'}` : '') + ' ',
+            el('button', { className: 'lien', type: 'button', textContent: 'Modifier', onclick: modifier(n) }), ' ',
+            el('button', { className: 'lien', type: 'button', textContent: 'Supprimer', onclick: supprimer(n) })),
           el('p', { className: 'texte', textContent: n.texte }))))
           : el('p', { className: 'vide', textContent: 'Aucune note.' }),
-        el('p', {}, texte), el('p', {}, el('label', {}, cachee, ' Note cachée (visible de moi seul)'), ' ', ajouter), message);
+        el('p', {}, texte), el('p', {}, el('label', {}, cachee, ' Note perso (visible de moi seul)'), ' ', valider, annuler), message);
+    }
+
+    // Gestion du site : toutes les notes des officiers, perso comprises, avec suppression (trace gardée en base)
+    async function notesGestion() {
+      const [{ data: notes, error }, { data: roster }] = await Promise.all([
+        sb.from('notes').select('*').order('le', { ascending: false }), sb.from('roster').select('joueur, pseudo')]);
+      const titre = el('h2', { textContent: 'Notes des officiers' });
+      if (error) return [titre, el('p', { textContent: 'Notes indisponibles : ' + error.message })];
+      const pseudo = new Map((roster ?? []).map(m => [m.joueur, m.pseudo]));
+      const message = el('p', { className: 'vide' });
+      const supprimer = n => async () => {
+        if (!confirm(`Supprimer la note de ${n.auteur_nom ?? '?'} sur ${pseudo.get(n.joueur) ?? n.joueur} ?`)) return;
+        const { error } = await sb.from('notes').delete().eq('id', n.id);
+        if (error) return message.textContent = 'La suppression a échoué : ' + error.message;
+        gestion();
+      };
+      return [titre, notes.length ? el('div', { className: 'stats' }, el('table', {},
+        el('thead', {}, el('tr', {}, ...['Joueur', 'Note', 'Type', 'Auteur', 'Date', ''].map(t => el('th', { textContent: t })))),
+        el('tbody', {}, ...notes.map(n => el('tr', {},
+          el('td', { textContent: pseudo.get(n.joueur) ?? n.joueur.replace(/^nom:/, '') }), el('td', { className: 'texte', textContent: n.texte }),
+          el('td', { textContent: n.cachee ? 'Perso' : 'Officiers' }), el('td', { textContent: n.auteur_nom ?? '?' }),
+          el('td', { textContent: quand(n.modifie_le ?? n.le) }),
+          el('td', {}, el('button', { className: 'retirer', type: 'button', textContent: '×', title: 'Supprimer la note',
+            ariaLabel: 'Supprimer la note', onclick: supprimer(n) })))))))
+        : el('p', { className: 'vide', textContent: 'Aucune note.' }), message];
     }
 
     // Journal des décisions (officiers) : chacun ajoute les siennes et ne modifie ou supprime que les siennes (la base

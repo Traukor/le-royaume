@@ -604,7 +604,10 @@ create policy inactivite on public.reglages for all
   with check ((select public.est_officier()) and cle in ('inactivite_semaines', 'inactivite_debut'));
 
 -- Journal des décisions et notes sur les joueurs (étape 5), réservés aux officiers. L'auteur est fixé par la base à
--- l'écriture et ne change plus ; seul l'auteur modifie ou supprime. Une note cachée n'est lisible que par son auteur.
+-- l'écriture et ne change plus. Décisions : seul l'auteur modifie ou supprime.
+-- Notes : une note d'officiers est lisible, modifiable et supprimable par tous les officiers (chaque modification ou
+-- suppression est gardée dans notes_journal) ; une note cachée (perso) seulement par son auteur. La gestion du site
+-- lit et supprime toutes les notes, cachées comprises.
 -- Les votes clos (scrutins) s'affichent aussi dans le journal, en lecture seule.
 create table if not exists public.decisions (
   id         bigint generated always as identity primary key,
@@ -652,10 +655,45 @@ create policy supprimer on public.decisions for delete using ((select public.est
 alter table public.notes enable row level security;
 drop policy if exists lire on public.notes;
 create policy lire on public.notes for select
-  using ((select public.est_officier()) and (not cachee or auteur = (select public.mon_discord())));
+  using (((select public.est_officier()) and (not cachee or auteur = (select public.mon_discord()))) or (select public.est_gestion()));
 drop policy if exists ajouter on public.notes;
 create policy ajouter on public.notes for insert with check ((select public.est_officier()));
 drop policy if exists auteur on public.notes;
-create policy auteur on public.notes for update using ((select public.est_officier()) and auteur = (select public.mon_discord()));
+-- with check : un officier ne peut pas cacher la note d'un autre
+create policy auteur on public.notes for update
+  using ((select public.est_officier()) and (not cachee or auteur = (select public.mon_discord())))
+  with check ((select public.est_officier()) and (not cachee or auteur = (select public.mon_discord())));
 drop policy if exists supprimer on public.notes;
-create policy supprimer on public.notes for delete using ((select public.est_officier()) and auteur = (select public.mon_discord()));
+create policy supprimer on public.notes for delete
+  using (((select public.est_officier()) and (not cachee or auteur = (select public.mon_discord()))) or (select public.est_gestion()));
+
+-- Dernière modification d'une note (signer() : pseudo et date) et trace de chaque modification ou suppression
+alter table public.notes add column if not exists modifie_par text;
+alter table public.notes add column if not exists modifie_le timestamptz;
+drop trigger if exists signer on public.notes;
+create trigger signer before update on public.notes for each row execute function public.signer();
+
+create table if not exists public.notes_journal (
+  id         bigint generated always as identity primary key,
+  note       bigint not null,
+  joueur     text not null,
+  action     text not null check (action in ('modification', 'suppression')),
+  texte      text not null, -- texte avant l'action
+  cachee     boolean not null,
+  auteur_nom text,          -- auteur de la note
+  par        text,          -- qui a modifié ou supprimé
+  le         timestamptz not null default now()
+);
+alter table public.notes_journal enable row level security;
+drop policy if exists lire on public.notes_journal;
+create policy lire on public.notes_journal for select using ((select public.est_gestion()));
+create or replace function public.journaliser_note() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  insert into public.notes_journal (note, joueur, action, texte, cachee, auteur_nom, par)
+  values (old.id, old.joueur, case tg_op when 'DELETE' then 'suppression' else 'modification' end, old.texte, old.cachee,
+          old.auteur_nom, (select pseudo from public.acces where user_id = auth.uid()));
+  return null;
+end $$;
+drop trigger if exists journaliser_note on public.notes;
+create trigger journaliser_note after update or delete on public.notes for each row execute function public.journaliser_note();
