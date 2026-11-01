@@ -47,6 +47,11 @@ Deno.serve(async (req) => {
   const { data: compte } = await admin.from("acces").select("pseudo").eq("user_id", user!.id).single();
   const par = compte?.pseudo ?? "?";
   const { ouvrir, clore } = (await req.json().catch(() => null)) ?? {};
+  // mode essai (réglage vote_test : identifiants Discord séparés par des virgules) : MP envoyés à ces seuls comptes,
+  // résultat marqué « Essai » ; réglage supprimé = fonctionnement normal
+  const { data: essai } = await admin.from("reglages").select("valeur").eq("cle", "vote_test").maybeSingle();
+  const testeurs = essai?.valeur.split(",").map((s: string) => s.trim()).filter(Boolean);
+  const marque = testeurs ? "🧪 Essai · " : "";
 
   const bot = { Authorization: `Bot ${Deno.env.get("DISCORD_BOT_TOKEN")}`, "Content-Type": "application/json" };
   // appel à Discord ; limite de débit (429) : une nouvelle tentative après le délai indiqué
@@ -77,7 +82,7 @@ Deno.serve(async (req) => {
     const ts = (d: string) => `<t:${Math.floor(Date.parse(d) / 1000)}:D>`;
     const dispo = (stats?.presents ?? 0) + (stats?.bancs ?? 0);
     const embed = {
-      color: OR, title: `🗳️ Passage membre : ${echapper(candidat.pseudo)}`, url: `${SITE}/espace.html`,
+      color: OR, title: `${marque}🗳️ Passage membre : ${echapper(candidat.pseudo)}`, url: `${SITE}/espace.html`,
       description: `Bonjour ! Les officiers ouvrent le vote pour le passage membre de **${echapper(candidat.pseudo)}** (<@${candidat.joueur}>).\n` +
         "Votre avis compte : votez avec les boutons ci-dessous. Le vote est anonyme et vous pouvez changer d'avis jusqu'à la clôture.",
       thumbnail: profil?.avatar ? { url: `https://cdn.discordapp.com/avatars/${candidat.joueur}/${profil.avatar}.png` } : { url: LOGO },
@@ -91,7 +96,7 @@ Deno.serve(async (req) => {
 
     let echecs = 0;
     const lignes = [];
-    for (const { joueur } of votants ?? []) {
+    for (const { joueur } of (votants ?? []).filter((v) => !testeurs || testeurs.includes(v.joueur))) {
       // MP fermés aux membres du serveur : 403 (code 50007), le joueur vote alors sur le site
       const salon = await discord("/users/@me/channels", "POST", { recipient_id: joueur }).then((r) => r.ok ? r.json() : null);
       const m = salon && await discord(`/channels/${salon.id}/messages`, "POST", { embeds: [embed], components: boutons(scrutin.id) })
@@ -121,7 +126,7 @@ Deno.serve(async (req) => {
     const r = await discord(`/channels/${SALON}/messages`, "POST", {
       embeds: [{
         color: s.pour > s.contre ? 0x57f287 : s.pour < s.contre ? 0xed4245 : GRIS,
-        title: `🗳️ Vote clos : passage membre de ${echapper(s.pseudo)}`,
+        title: `${marque}🗳️ Vote clos : passage membre de ${echapper(s.pseudo)}`,
         description: `<@${s.candidat}>`,
         fields: [
           { name: "✅ Pour", value: String(s.pour), inline: true },
