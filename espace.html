@@ -512,7 +512,8 @@
         sb.from('appel').select('etat, retard_min, sorties(titre, debut)').eq('joueur', joueur),
         fiche ? sb.from('loots').select('*, sorties(titre)').eq('joueur', joueur).order('le', { ascending: false }) : { data: [] },
         joueur.startsWith('nom:') ? sb.from('roster').select('joueur, pseudo') : { data: [] },
-        officier ? sb.from('notes').select('*').eq('joueur', joueur).order('le', { ascending: false }) : { data: null }]);
+        // la gestion du site lit aussi les notes perso des autres (base) : la fiche ne montre que les siennes
+        officier ? sb.from('notes').select('*').eq('joueur', joueur).or(`cachee.eq.false,auteur.eq.${moi}`).order('le', { ascending: false }) : { data: null }]);
       if (error) return ouvrir(...haut, el('p', { textContent: 'Suivi indisponible : ' + error.message }));
       const pct = (a, b) => b ? Math.round(100 * a / b) + ' %' : null;
       const periode = (titre, r) => { r = completer(r ?? {}); return el('tr', {}, ...[titre, r.toutes, r.dispo,
