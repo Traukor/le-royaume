@@ -284,3 +284,4 @@ button.btn { background: transparent; color: var(--gold); font-size: 1rem; curso
 .notes { padding-left: 0; list-style: none; }
 .notes p { margin: 2px 0; }
 .notes li { margin-bottom: 10px; }
+.btn[hidden] { display: none; }
