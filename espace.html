@@ -189,8 +189,59 @@
         el('p', { className: 'vide', textContent: "Accès relu sur le Discord à chaque ouverture de l'espace." }),
         el('h2', { textContent: 'Annonce des signatures' }),
         e2 ? el('p', { textContent: 'Modèles indisponibles pour le moment.' }) : annonces(modeles, e3 ? null : Object.hasOwn(MODELES, reglage?.valeur ?? '') ? reglage.valeur : 'sobre') /* comme le bot */,
+        el('h2', { textContent: 'Communication aux membres' }), communication(),
         ...notes, blocCharte);
       chargerCharte();
+    }
+
+    // Message envoyé en MP par le bot aux membres, officiers et chef de guilde du roster ; la mise en forme (logo, image,
+    // boutons vers le site) est fixée par l'Edge Function, l'aperçu est le message réel qu'elle renvoie
+    const ANNONCE_SITE = {
+      titre: '👑 Le site du Royaume ouvre ses portes !',
+      texte: `Oyez, oyez, membres du Royaume !
+
+Notre guilde a désormais son propre site : **le-royaume.fr**
+
+🏰 **La vitrine** : qui nous sommes, nos faits d'armes et comment nous rejoindre.
+📜 **La charte** : à lire et à approuver directement en ligne.
+🗡️ **L'espace membre** : connexion avec votre compte Discord pour retrouver vos inscriptions et présences en raid, déclarer vos absences, suivre vos personnages et vos loots, et voter pour le passage membre des postulants.
+
+Connectez-vous, approuvez la charte si ce n'est pas encore fait, et faites le tour du propriétaire !
+
+**Pour le Royaume !** ⚔️`,
+    };
+    function communication() {
+      const titre = el('input', { type: 'text', maxLength: 256, value: ANNONCE_SITE.titre, ariaLabel: 'Titre' });
+      const texte = el('textarea', { rows: 14, maxLength: 4000, value: ANNONCE_SITE.texte, ariaLabel: 'Message' });
+      const zone = el('div');
+      const message = el('p', { className: 'vide' });
+      const appeler = async (options, attente) => {
+        if (!titre.value.trim() || !texte.value.trim()) return message.textContent = 'Titre et message sont requis.';
+        message.textContent = attente;
+        const { data, error } = await sb.functions.invoke('communication', { body: { titre: titre.value.trim(), texte: texte.value.trim(), ...options } });
+        if (error) message.textContent = 'Échec : ' + ((await error.context?.json?.().catch(() => null))?.erreur ?? error.message);
+        return error ? null : data;
+      };
+      const voir = bouton('Aperçu', '', async () => {
+        const d = await appeler({ apercu: true }, 'Aperçu…');
+        if (!d) return;
+        zone.replaceChildren(apercu(d.message));
+        envoyer.textContent = `Envoyer à tous (${d.destinataires})`;
+        message.textContent = '';
+      });
+      const essai = bouton("M'envoyer un essai", '', async () => {
+        const d = await appeler({ essai: true }, 'Envoi…');
+        if (d) message.textContent = d.envoyes ? 'Essai envoyé en MP.' : "Échec : le bot n'a pas pu vous écrire (MP fermés ?).";
+      });
+      const envoyer = bouton('Envoyer à tous', 'discord', async () => {
+        if (!confirm('Envoyer ce message en MP à tous les membres, officiers et au chef de guilde ?')) return;
+        envoyer.disabled = true;
+        const d = await appeler({}, 'Envoi en cours, cela peut prendre une minute…');
+        envoyer.disabled = false;
+        if (d) message.textContent = `Message envoyé à ${d.envoyes} personne(s).` + (d.echecs.length ? ` Échec (MP fermés) pour : ${d.echecs.join(', ')}.` : '');
+      });
+      return el('div', {}, el('p', { textContent: 'MP envoyé par le bot aux membres, officiers et au chef de guilde du roster. Markdown Discord accepté (**gras**, *italique*).' }),
+        el('p', {}, titre), el('p', {}, texte), el('p', {}, voir, ' ', essai, ' ', envoyer), message, zone);
     }
 
     // Choix du message posté par le bot dans le salon des officiers à chaque signature de la charte.
@@ -213,7 +264,7 @@
         zone, el('p', {}, essai), message);
     }
     // rendu approché d'un message Discord : @here, mentions, dates <t:…>, **gras**, retours à la ligne
-    function apercu({ content, embeds: [e] }) {
+    function apercu({ content, embeds: [e], components }) {
       const date = (ts, f) => { const d = new Date(ts * 1000);
         return f === 'R' ? "à l'instant" : d.toLocaleString('fr-FR', f === 'F' ? { dateStyle: 'full', timeStyle: 'short' } : { dateStyle: 'long', timeStyle: 'short' }); };
       const brut = m => m.replace(/\\(.)/g, '$1'); // pseudo échappé par le bot : \_ → _
@@ -230,8 +281,11 @@
             e.description && el('p', {}, ...texte(e.description)),
             e.fields && el('div', { className: 'd-champs' }, ...e.fields.map(f => el('div', { className: f.inline ? 'd-ligne' : '' },
               el('strong', { textContent: f.name }), el('br'), ...texte(f.value)))),
+            e.image && el('img', { className: 'd-image', src: e.image.url, alt: '' }),
             e.footer && el('p', { className: 'd-pied' }, e.footer.icon_url && el('img', { src: e.footer.icon_url, alt: '' }), e.footer.text)),
-          e.thumbnail && el('img', { className: 'd-vignette', src: e.thumbnail.url, alt: '' })));
+          e.thumbnail && el('img', { className: 'd-vignette', src: e.thumbnail.url, alt: '' })),
+        components && el('p', { className: 'd-boutons' }, ...components[0].components.map(b =>
+          el('a', { href: b.url, target: '_blank', rel: 'noopener', textContent: `${b.emoji?.name ?? ''} ${b.label}` }))));
     }
 
     // synchronisation immédiate, sans attendre le délai de 5 minutes (officiers)
