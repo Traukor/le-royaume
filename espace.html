@@ -658,7 +658,7 @@
           : el('p', { className: 'vide', textContent: vide })];
       };
       ouvrir(...haut, ...groupe('postulant', 'Postulants', 'Aucun postulant pour le moment.'),
-        ...await votesOfficiers(ouverts, clos),
+        ...await votesOfficiers(ouverts, clos, recrues),
         ...groupe('sans_role', 'Sans rôle sur le Discord', 'Aucun compte sans rôle.'));
     }
 
@@ -673,14 +673,16 @@
       recrues(error ? `Ouverture du vote impossible : ${await erreurDe(error)}.`
         : `Vote ouvert : ${data.envoyes} MP envoyé(s)${data.echecs ? `, ${data.echecs} non reçu(s) (MP fermés : ces joueurs votent sur le site)` : ''}.`);
     };
-    const clore = s => async e => {
+    // apres(note) : redessine la fenêtre Recrues ou le bloc des votes ; le bloc est relu dans les deux cas
+    const clore = (s, apres) => async e => {
       if (!confirm(`Clôturer le vote pour ${s.pseudo} ? Plus personne ne pourra voter.`)) return;
       e.target.disabled = true; e.target.textContent = 'Clôture…';
       const { data, error } = await sb.functions.invoke('scrutin', { body: { clore: s.id } });
-      recrues(error ? `Clôture impossible : ${await erreurDe(error)}.`
+      apres(error ? `Clôture impossible : ${await erreurDe(error)}.`
         : `Vote clos pour ${s.pseudo} : ${data.pour} pour, ${data.contre} contre, ${data.abstention} ne se prononce(nt) pas.${data.annonce ? '' : " Le résultat n'a pas pu être posté sur Discord."}`);
+      if (apres !== chargerVotes) chargerVotes();
     };
-    async function votesOfficiers(ouverts, clos) {
+    async function votesOfficiers(ouverts, clos, apres) {
       const decomptes = await Promise.all(ouverts.map(s => sb.rpc('decompte', { s: s.id }).single()));
       const date = d => new Date(d).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' });
       return [el('h3', { textContent: `Votes en cours (${ouverts.length})` }),
@@ -691,7 +693,7 @@
             d ? el('p', { textContent: `${CHOIX.pour} ${d.pour} · ${CHOIX.contre} ${d.contre} · ${CHOIX.abstention} ${d.abstention} · ${d.votants} votant(s) sur ${d.electeurs}` })
               : el('p', { textContent: 'Décompte indisponible pour le moment.' }),
             d?.commentaires?.length ? el('ul', {}, ...d.commentaires.map(c => el('li', { textContent: c }))) : el('p', { className: 'vide', textContent: 'Aucun commentaire.' }),
-            el('p', {}, bouton('Clôturer le vote', '', clore(s))));
+            el('p', {}, bouton('Clôturer le vote', '', clore(s, apres))));
         }) : [el('p', { className: 'vide', textContent: "Aucun vote en cours. « Ouvrir un vote » sur un postulant envoie un MP du bot à chaque votant." })]),
         clos.length > 0 && el('h3', { textContent: 'Votes clos' }),
         clos.length > 0 && el('div', { className: 'stats' }, el('table', {},
@@ -700,11 +702,21 @@
     }
 
     // Votes en cours (membres, officiers, chef de guilde) : un vote par personne, modifiable jusqu'à la clôture, et un
-    // commentaire facultatif pour les officiers, sans nom ; même vote que par les boutons du MP du bot
+    // commentaire facultatif pour les officiers, sans nom ; même vote que par les boutons du MP du bot.
+    // Interface officier : récapitulatif à la place (décompte, commentaires, clôture, votes clos)
     const blocVotes = el('section', { className: 'absences' });
     let demandeVotes = 0;
-    async function chargerVotes() {
+    async function chargerVotes(note) {
       const n = ++demandeVotes;
+      if (officier) {
+        const { data: scrutins, error } = await sb.from('scrutins').select('*').order('ouvert_le', { ascending: false }).limit(20);
+        const ouverts = (scrutins ?? []).filter(s => !s.clos_le), clos = (scrutins ?? []).filter(s => s.clos_le);
+        const recap = !error && scrutins.length ? await votesOfficiers(ouverts, clos, chargerVotes) : [];
+        if (n !== demandeVotes) return;
+        return blocVotes.replaceChildren(...(recap.length ? [el('h2', { textContent: 'Votes de passage membre' }),
+          typeof note === 'string' && el('p', { className: 'vide', textContent: note }), ...recap,
+          el('p', { className: 'vide', textContent: 'Votre propre vote : interface Membre ou boutons du MP du bot.' })].filter(Boolean) : [])); // false : élément absent
+      }
       const [{ data: ouverts, error }, { data: mes }] = await Promise.all([
         sb.from('scrutins').select('id, pseudo').is('clos_le', null).order('ouvert_le'),
         sb.from('votes').select('scrutin, choix, commentaire').eq('votant', moi)]);
