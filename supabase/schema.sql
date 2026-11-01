@@ -420,7 +420,7 @@ language sql stable security definer set search_path = '' as $$
 $$;
 
 -- ===== Rattachement d'un joueur ajouté à la main (« nom:… ») à son compte Discord (officiers) =====
--- Son appel et ses loots passent sous l'identifiant Discord (joueur du roster, ou inscrit au moins une fois sur
+-- Son appel, ses loots et ses notes passent sous l'identifiant Discord (joueur du roster, ou inscrit au moins une fois sur
 -- Raid-Helper) ; une soirée où les deux figurent garde la ligne Discord.
 -- Les changements d'appel sont journalisés (auteur = l'officier) ; les loots gardent leur auteur et leur date.
 create or replace function public.rattacher(ancien text, nouveau text) returns void
@@ -437,6 +437,7 @@ begin
   perform set_config('royaume.rattachement', 'oui', true);
   update public.loots set joueur = nouveau, nom = n where joueur = ancien;
   perform set_config('royaume.rattachement', '', true);
+  update public.notes set joueur = nouveau where joueur = ancien; -- table du lot 5
 end $$;
 
 -- ===== Personnages créés automatiquement (pseudo + classe + spé + rôle de l'inscription Raid-Helper) =====
@@ -601,3 +602,60 @@ drop policy if exists inactivite on public.reglages;
 create policy inactivite on public.reglages for all
   using ((select public.est_officier()) and cle in ('inactivite_semaines', 'inactivite_debut'))
   with check ((select public.est_officier()) and cle in ('inactivite_semaines', 'inactivite_debut'));
+
+-- Journal des décisions et notes sur les joueurs (étape 5), réservés aux officiers. L'auteur est fixé par la base à
+-- l'écriture et ne change plus ; seul l'auteur modifie ou supprime. Une note cachée n'est lisible que par son auteur.
+-- Les votes clos (scrutins) s'affichent aussi dans le journal, en lecture seule.
+create table if not exists public.decisions (
+  id         bigint generated always as identity primary key,
+  le         date not null default current_date, -- date de la décision
+  sujet      text not null check (length(sujet) between 1 and 200),
+  decision   text not null check (length(decision) between 1 and 4000),
+  auteur     text,  -- identifiant Discord
+  auteur_nom text
+);
+create table if not exists public.notes (
+  id         bigint generated always as identity primary key,
+  joueur     text not null, -- joueur concerné (identifiant Discord ou « nom:… »)
+  texte      text not null check (length(texte) between 1 and 4000),
+  cachee     boolean not null default false,
+  le         timestamptz not null default now(),
+  auteur     text,
+  auteur_nom text
+);
+
+create or replace function public.fixer_auteur() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if tg_op = 'INSERT' then
+    select discord_id, pseudo into new.auteur, new.auteur_nom from public.acces where user_id = auth.uid();
+  else
+    new.auteur := old.auteur; new.auteur_nom := old.auteur_nom;
+  end if;
+  return new;
+end $$;
+drop trigger if exists fixer_auteur on public.decisions;
+create trigger fixer_auteur before insert or update on public.decisions for each row execute function public.fixer_auteur();
+drop trigger if exists fixer_auteur on public.notes;
+create trigger fixer_auteur before insert or update on public.notes for each row execute function public.fixer_auteur();
+
+alter table public.decisions enable row level security;
+drop policy if exists lire on public.decisions;
+create policy lire on public.decisions for select using ((select public.est_officier()));
+drop policy if exists ajouter on public.decisions;
+create policy ajouter on public.decisions for insert with check ((select public.est_officier()));
+drop policy if exists auteur on public.decisions;
+create policy auteur on public.decisions for update using ((select public.est_officier()) and auteur = (select public.mon_discord()));
+drop policy if exists supprimer on public.decisions;
+create policy supprimer on public.decisions for delete using ((select public.est_officier()) and auteur = (select public.mon_discord()));
+
+alter table public.notes enable row level security;
+drop policy if exists lire on public.notes;
+create policy lire on public.notes for select
+  using ((select public.est_officier()) and (not cachee or auteur = (select public.mon_discord())));
+drop policy if exists ajouter on public.notes;
+create policy ajouter on public.notes for insert with check ((select public.est_officier()));
+drop policy if exists auteur on public.notes;
+create policy auteur on public.notes for update using ((select public.est_officier()) and auteur = (select public.mon_discord()));
+drop policy if exists supprimer on public.notes;
+create policy supprimer on public.notes for delete using ((select public.est_officier()) and auteur = (select public.mon_discord()));

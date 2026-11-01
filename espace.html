@@ -148,7 +148,7 @@
         interfaces(),
         el('p', { className: 'outils' }, !officier && bouton('Mon suivi', '', suivi),
           bouton(officier ? 'Loots' : 'Mes loots', '', historique),
-          officier && bouton('Stats joueurs', '', statsJoueurs), officier && bouton('Recrues', '', recrues), officier && bouton('Inactifs', '', inactifs), officier && bouton('Actualiser', '', actualiser)),
+          officier && bouton('Stats joueurs', '', statsJoueurs), officier && bouton('Recrues', '', recrues), officier && bouton('Inactifs', '', inactifs), officier && bouton('Décisions', '', journal), officier && bouton('Actualiser', '', actualiser)),
         el('div', { className: 'cal-tete' },
           el('button', { className: 'nav-mois', textContent: '‹', ariaLabel: 'Mois précédent', onclick: changer(-1) }),
           el('h2', { textContent: mois.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) }),
@@ -507,11 +507,12 @@
       const haut = [fermer(), retour && el('button', { className: 'lien', type: 'button', textContent: '‹ Retour', onclick: retour }),
         el('h2', { textContent: fiche ? nom : 'Mon suivi' })];
       const taux = depuis => sb.rpc('stats_joueurs', { depuis }).eq('joueur', joueur).maybeSingle();
-      const [{ data: trois }, { data: tout }, { data: soirees, error }, { data: loots }, { data: inscr }] = await Promise.all([
+      const [{ data: trois }, { data: tout }, { data: soirees, error }, { data: loots }, { data: inscr }, { data: notes }] = await Promise.all([
         taux(new Date(debutDe('3m') + 'T00:00').toISOString()), taux(null),
         sb.from('appel').select('etat, retard_min, sorties(titre, debut)').eq('joueur', joueur),
         fiche ? sb.from('loots').select('*, sorties(titre)').eq('joueur', joueur).order('le', { ascending: false }) : { data: [] },
-        joueur.startsWith('nom:') ? sb.from('roster').select('joueur, pseudo') : { data: [] }]);
+        joueur.startsWith('nom:') ? sb.from('roster').select('joueur, pseudo') : { data: [] },
+        officier && fiche ? sb.from('notes').select('*').eq('joueur', joueur).order('le', { ascending: false }) : { data: null }]);
       if (error) return ouvrir(...haut, el('p', { textContent: 'Suivi indisponible : ' + error.message }));
       const pct = (a, b) => b ? Math.round(100 * a / b) + ' %' : null;
       const periode = (titre, r) => { r = completer(r ?? {}); return el('tr', {}, ...[titre, r.toutes, r.dispo,
@@ -538,7 +539,7 @@
           suivi(choix.value, cible, retour);
         })), message);
 
-      ouvrir(...haut, rattacher,
+      ouvrir(...haut, rattacher, notes && notesJoueur(joueur, notes, () => suivi(joueur, nom, retour)),
         tableau(['Période', 'Soirées inscrit', 'Dispo', 'En raid', 'Mis au banc', 'Retard', 'Retard moyen (min)', 'Absent prévenu', 'Absent'],
           periode('3 derniers mois', trois), periode('Depuis le début', tout)),
         el('h3', { textContent: fiche ? 'Soirées' : 'Mes soirées' }),
@@ -550,6 +551,87 @@
           ...[new Date(l.le).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' }), l.objet, l.boss, pourQui(l), l.sorties?.titre]
             .map(v => el('td', { textContent: v ?? '–' })))))
           : el('p', { textContent: 'Aucun loot.' })));
+    }
+
+    // Notes des officiers sur un joueur (dans sa fiche) : lisibles par tous les officiers, ou cachées (lisibles par leur
+    // seul auteur, la base l'impose) ; seul l'auteur supprime
+    function notesJoueur(joueur, notes, recharger) {
+      const texte = el('textarea', { rows: 2, maxLength: 4000, placeholder: 'Nouvelle note', ariaLabel: 'Nouvelle note' });
+      const cachee = el('input', { type: 'checkbox' });
+      const message = el('p', { className: 'vide' });
+      const ajouter = bouton('Ajouter la note', '', async () => {
+        if (!texte.value.trim()) return message.textContent = 'La note est vide.';
+        const { error } = await sb.from('notes').insert({ joueur, texte: texte.value.trim(), cachee: cachee.checked });
+        if (error) return message.textContent = "L'enregistrement a échoué : " + error.message;
+        recharger();
+      });
+      const supprimer = n => async () => {
+        if (!confirm('Supprimer cette note ?')) return;
+        const { error } = await sb.from('notes').delete().eq('id', n.id);
+        if (error) return message.textContent = 'La suppression a échoué : ' + error.message;
+        recharger();
+      };
+      return el('section', {}, el('h3', { textContent: 'Notes des officiers' }),
+        notes.length ? el('ul', { className: 'notes' }, ...notes.map(n => el('li', {},
+          el('p', { className: 'vide' }, `${quand(n.le)} · ${n.auteur_nom ?? '?'}${n.cachee ? ' · 🔒 cachée, visible de vous seul' : ''} `,
+            n.auteur === moi && el('button', { className: 'lien', type: 'button', textContent: 'Supprimer', onclick: supprimer(n) })),
+          el('p', { className: 'texte', textContent: n.texte }))))
+          : el('p', { className: 'vide', textContent: 'Aucune note.' }),
+        el('p', {}, texte), el('p', {}, el('label', {}, cachee, ' Note cachée (visible de moi seul)'), ' ', ajouter), message);
+    }
+
+    // Journal des décisions (officiers) : chacun ajoute les siennes et ne modifie ou supprime que les siennes (la base
+    // l'impose) ; les votes clos y figurent aussi, en lecture seule
+    async function journal(note) {
+      const [{ data, error }, { data: scrutins }] = await Promise.all([
+        sb.from('decisions').select('*').order('le', { ascending: false }).order('id', { ascending: false }),
+        sb.from('scrutins').select('*').not('clos_le', 'is', null)]);
+      const haut = [fermer(), el('h2', { textContent: 'Journal des décisions' }), typeof note === 'string' && el('p', { className: 'vide', textContent: note })];
+      if (error) return ouvrir(...haut, el('p', { textContent: 'Journal indisponible : ' + error.message }));
+      const entrees = [...data, ...(scrutins ?? []).map(s => ({ le: jourParis(s.clos_le), sujet: `Vote de passage membre : ${s.pseudo}`,
+        decision: `Vote clos : ${CHOIX.pour} ${s.pour} · ${CHOIX.contre} ${s.contre} · ${CHOIX.abstention} ${s.abstention}`, auteur_nom: s.clos_par }))]
+        .sort((a, b) => b.le.localeCompare(a.le)); // tri stable : les plus récentes d'abord dans une même journée
+
+      let edition = null; // id de la décision en cours de modification
+      const le = el('input', { type: 'date', value: jourParis(Date.now()), ariaLabel: 'Date de la décision' });
+      const sujet = el('input', { type: 'text', maxLength: 200, placeholder: 'Sujet', ariaLabel: 'Sujet' });
+      const texte = el('textarea', { rows: 3, maxLength: 4000, placeholder: 'Décision', ariaLabel: 'Décision' });
+      const message = el('p', { className: 'vide' });
+      const valider = bouton('Ajouter la décision', 'discord', async () => {
+        if (!le.value || !sujet.value.trim() || !texte.value.trim()) return message.textContent = 'Date, sujet et décision sont requis.';
+        const ligne = { le: le.value, sujet: sujet.value.trim(), decision: texte.value.trim() };
+        const { error } = await (edition ? sb.from('decisions').update(ligne).eq('id', edition) : sb.from('decisions').insert(ligne));
+        if (error) return message.textContent = "L'enregistrement a échoué : " + error.message;
+        journal(edition ? 'Décision modifiée.' : 'Décision ajoutée.');
+      });
+      const annuler = Object.assign(bouton('Annuler', '', () => journal()), { hidden: true });
+      const modifier = d => () => {
+        edition = d.id; le.value = d.le; sujet.value = d.sujet; texte.value = d.decision;
+        valider.textContent = 'Enregistrer la modification'; annuler.hidden = false; sujet.focus();
+      };
+      const supprimer = d => async () => {
+        if (!confirm(`Supprimer la décision « ${d.sujet} » ?`)) return;
+        const { error } = await sb.from('decisions').delete().eq('id', d.id);
+        if (error) return message.textContent = 'La suppression a échoué : ' + error.message;
+        journal('Décision supprimée.');
+      };
+      const filtre = el('input', { type: 'search', placeholder: 'Filtrer : sujet, décision, auteur…', ariaLabel: 'Filtrer' });
+      const corps = el('tbody');
+      const remplir = () => {
+        const f = filtre.value.trim().toLowerCase();
+        corps.replaceChildren(...entrees.filter(d => !f || [d.sujet, d.decision, d.auteur_nom].some(v => v?.toLowerCase().includes(f))).map(d => el('tr', {},
+          el('td', { textContent: new Date(d.le + 'T12:00').toLocaleDateString('fr-FR') }), el('td', { textContent: d.sujet }),
+          el('td', { className: 'texte', textContent: d.decision }), el('td', { textContent: d.auteur_nom ?? '?' }),
+          el('td', {}, d.id && d.auteur === moi && el('button', { className: 'lien', type: 'button', textContent: 'Modifier', onclick: modifier(d) }),
+            d.id && d.auteur === moi && el('button', { className: 'lien', type: 'button', textContent: 'Supprimer', onclick: supprimer(d) })))));
+      };
+      filtre.oninput = remplir;
+      remplir();
+      ouvrir(...haut, el('p', {}, le, ' ', sujet), el('p', {}, texte), el('p', {}, valider, annuler), message,
+        entrees.length ? el('p', {}, filtre) : el('p', { className: 'vide', textContent: 'Aucune décision pour le moment.' }),
+        entrees.length > 0 && el('div', { className: 'stats' }, el('table', {},
+          el('thead', {}, el('tr', {}, ...['Date', 'Sujet', 'Décision', 'Auteur', ''].map(t => el('th', { textContent: t })))), corps)),
+        el('p', { className: 'vide', textContent: "Seul l'auteur d'une décision peut la modifier ou la supprimer. Les votes clos sont ajoutés automatiquement." }));
     }
 
     // Charte : chaque membre l'approuve une fois ; officiers et gestion du site listent les signatures et qui n'a pas signé,

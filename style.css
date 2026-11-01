@@ -280,3 +280,7 @@ button.btn { background: transparent; color: var(--gold); font-size: 1rem; curso
 .espace textarea { width: min(100%, 480px); vertical-align: middle; }
 .vote { margin: 16px 0; }
 .vote .btn { margin: 2px 4px 2px 0; }
+.texte { white-space: pre-wrap; text-align: left; }
+.notes { padding-left: 0; list-style: none; }
+.notes p { margin: 2px 0; }
+.notes li { margin-bottom: 10px; }
