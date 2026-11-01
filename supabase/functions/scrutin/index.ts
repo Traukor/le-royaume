@@ -117,7 +117,7 @@ Deno.serve(async (req) => {
     const { data: mps } = await admin.from("votes").select("salon, message").eq("scrutin", s.id).not("message", "is", null);
     await Promise.all((mps ?? []).map((v) => discord(`/channels/${v.salon}/messages/${v.message}`, "PATCH", {
       embeds: [{
-        color: GRIS, title: `🗳️ Passage membre : ${echapper(s.pseudo)}`,
+        color: GRIS, title: `${marque}🗳️ Passage membre : ${echapper(s.pseudo)}`,
         description: "🔒 **Vote clos.** Merci pour votre participation !", footer: { text: "Le Royaume · Vote de passage membre", icon_url: LOGO },
       }],
       components: [],
