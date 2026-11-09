@@ -224,6 +224,7 @@ button.btn { background: transparent; color: var(--gold); font-size: 1rem; curso
 .compo .statut { margin-left: 8px; padding: 2px 4px; font-size: .85rem; }
 .absences { margin-top: 32px; padding: 0; text-align: left; }
 .absences h2 { font-size: 1.5rem; text-align: center; }
+.passage { text-align: center; }
 .declarer label { white-space: nowrap; }
 .compo .cible { width: 3.5em; padding: 1px 4px; font-size: .9rem; }
 

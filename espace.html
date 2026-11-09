@@ -731,7 +731,7 @@ Connectez-vous, approuvez la charte si ce n'est pas encore fait, et faites le to
     const GRADES = { gm: 'Chef de guilde', officier: 'Officier', membre: 'Membre', postulant: 'Postulant', invite: 'Invité', sans_role: 'Sans rôle' }; // ordre d'affichage
     const rang = c => { const i = Object.values(GRADES).indexOf(c.grade); return i < 0 ? 99 : i; }; // partis du Discord en dernier
     let demandeCharte = 0;
-    const blocPassage = el('section', { className: 'absences', hidden: true }); // postulants seulement, en haut de l'espace
+    const blocPassage = el('section', { className: 'absences passage', hidden: true }); // postulants seulement, en haut de l'espace
 
     async function chargerCharte() {
       const n = ++demandeCharte, gere = vue === 'gestion'; // vues changées vite : seule la dernière réponse s'affiche
