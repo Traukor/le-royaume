@@ -800,7 +800,7 @@ Connectez-vous, approuvez la charte si ce n'est pas encore fait, et faites le to
     const passage = (signee, rang) => {
       if (rang?.grade !== 'postulant') return null;
       if (rang.demande_passage) return [el('p', { textContent:
-        `Demande envoyée le ${new Date(rang.demande_passage).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })} : les officiers l'étudient.` })];
+        `Votre demande a rejoint la table du Conseil le ${new Date(rang.demande_passage).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })} : La guilde (membres et officiers) vont en discuter autour d'une chope : restez fidèle au poste, la réponse ne tardera pas !` })];
       if (!signee) return [el('p', { textContent: 'Signez la charte (plus bas) pour pouvoir demander votre passage membre.' })];
       const message = el('p', { className: 'vide' });
       const demander = bouton('Demander mon passage membre', 'discord', async () => {
