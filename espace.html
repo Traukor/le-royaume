@@ -95,7 +95,7 @@
       // invité (sur le Discord sans rôle de la guilde) : la charte seulement, à lire et signer
       if (!data.membre) {
         afficher(`Bienvenue ${data.pseudo}. Votre compte n'a pas encore de rôle de la guilde : vous pouvez lire et signer la charte.`, bouton('Se déconnecter', '', deconnexion));
-        return contenu.replaceChildren(blocCharte);
+        return contenu.replaceChildren(blocPassage, blocCharte);
       }
       chargerAbsences();
       chargerVotes();
@@ -145,7 +145,7 @@
       });
       contenu.replaceChildren(
         ...(avertissement ? [el('p', { className: 'vide', textContent: avertissement })] : []),
-        interfaces(),
+        interfaces(), blocPassage,
         el('p', { className: 'outils' }, !officier && bouton('Mon suivi', '', suivi),
           bouton(officier ? 'Loots' : 'Mes loots', '', historique),
           officier && bouton('Stats joueurs', '', statsJoueurs), officier && bouton('Recrues', '', recrues), officier && bouton('Inactifs', '', inactifs), officier && bouton('Décisions', '', journal), officier && bouton('Actualiser', '', actualiser)),
@@ -731,9 +731,11 @@ Connectez-vous, approuvez la charte si ce n'est pas encore fait, et faites le to
     const GRADES = { gm: 'Chef de guilde', officier: 'Officier', membre: 'Membre', postulant: 'Postulant', invite: 'Invité', sans_role: 'Sans rôle' }; // ordre d'affichage
     const rang = c => { const i = Object.values(GRADES).indexOf(c.grade); return i < 0 ? 99 : i; }; // partis du Discord en dernier
     let demandeCharte = 0;
+    const blocPassage = el('section', { className: 'absences', hidden: true }); // postulants seulement, en haut de l'espace
 
     async function chargerCharte() {
       const n = ++demandeCharte, gere = vue === 'gestion'; // vues changées vite : seule la dernière réponse s'affiche
+      blocPassage.hidden = true;
       const titre = el('h2', { textContent: 'Charte' });
       const lien = el('a', { href: 'charte.html', target: '_blank', textContent: 'Lire la charte' });
       if (officier || gere) {
@@ -787,19 +789,30 @@ Connectez-vous, approuvez la charte si ce n'est pas encore fait, et faites le to
               const { error } = await sb.from('signatures').insert({});
               if (error) return message.textContent = "L'enregistrement a échoué : " + error.message;
               chargerCharte();
-            })), passage(data, maLigne, message) || '', message);
+            })), message);
+      const p = passage(data, maLigne);
+      if (p) blocPassage.replaceChildren(el('h2', { textContent: 'Passage membre' }), ...p);
+      blocPassage.hidden = !p;
     }
 
-    // postulant : demande de passage membre, une fois la charte signée (la base vérifie les deux)
-    const passage = (signee, rang, message) => rang?.grade === 'postulant' && el('p', {},
-      ...(rang.demande_passage
-        ? [`Demande de passage membre envoyée le ${new Date(rang.demande_passage).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })} : les officiers l'étudient.`]
-        : signee ? ['Postulant : quand vous vous sentez prêt, ', bouton('Demander mon passage membre', 'discord', async () => {
-            const { error } = await sb.rpc('demander_passage');
-            if (error) return message.textContent = "La demande a échoué : " + error.message;
-            chargerCharte();
-          })]
-        : ['Postulant : signez la charte pour pouvoir demander votre passage membre.']));
+    // postulant : demande de passage membre, une fois la charte signée (la base vérifie les deux) ; le bot prévient les
+    // officiers dans le salon de suivi des candidatures
+    const passage = (signee, rang) => {
+      if (rang?.grade !== 'postulant') return null;
+      if (rang.demande_passage) return [el('p', { textContent:
+        `Demande envoyée le ${new Date(rang.demande_passage).toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })} : les officiers l'étudient.` })];
+      if (!signee) return [el('p', { textContent: 'Signez la charte (plus bas) pour pouvoir demander votre passage membre.' })];
+      const message = el('p', { className: 'vide' });
+      const demander = bouton('Demander mon passage membre', 'discord', async () => {
+        demander.disabled = true;
+        const { error } = await sb.functions.invoke('demander-passage');
+        demander.disabled = false;
+        if (error) return message.textContent = 'La demande a échoué : ' + ((await error.context?.json?.().catch(() => null))?.erreur ?? error.message);
+        chargerCharte();
+      });
+      return [el('p', { textContent: 'Quand vous vous sentez prêt, demandez votre passage membre : les officiers sont prévenus sur Discord.' }),
+        el('p', {}, demander), message];
+    };
 
     // Recrues (officiers) : postulants du plus ancien au plus récent, puis comptes sans rôle (veulent en général
     // intégrer la guilde), avec charte, présence depuis le début et demande de passage
