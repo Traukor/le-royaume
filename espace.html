@@ -51,6 +51,27 @@
       e.append(...enfants.filter(x => x != null && x !== false));
       return e;
     };
+    // champ de date en jj/mm/aaaa quelle que soit la langue du navigateur (un champ de date natif suit celle-ci : mois
+    // avant le jour sur un navigateur en anglais) ; value en AAAA-MM-JJ comme un champ natif ('' si vide ou invalide) ;
+    // le bouton ouvre le calendrier du navigateur
+    const champDate = ({ value = '', ariaLabel, min, max, hidden = false }) => {
+      const texte = el('input', { type: 'text', placeholder: 'jj/mm/aaaa', inputMode: 'numeric', size: 10, maxLength: 10, ariaLabel });
+      const natif = el('input', { type: 'date', tabIndex: -1, ariaHidden: 'true', ...(min && { min }), ...(max && { max }) });
+      const champ = el('span', { className: 'date-fr', hidden }, texte, ' ', el('button', { type: 'button', className: 'lien', textContent: '📅',
+        title: 'Choisir dans le calendrier', ariaLabel: 'Choisir dans le calendrier', onclick: () => { natif.value = champ.value; natif.showPicker?.(); } }), natif);
+      natif.onchange = () => champ.value = natif.value; // l'évènement remonte ensuite jusqu'à champ.onchange
+      Object.defineProperty(champ, 'value', {
+        get() {
+          const m = texte.value.trim().match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
+          if (!m) return '';
+          const iso = `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`, d = new Date(iso + 'T12:00');
+          return d.getDate() === +m[1] && d.getMonth() + 1 === +m[2] ? iso : ''; // pas de 31/02
+        },
+        set(v) { texte.value = v ? v.split('-').reverse().join('/') : ''; },
+      });
+      champ.value = value;
+      return champ;
+    };
     // remplace le contenu de la zone d'état
     const afficher = (texte, bouton) => etat.replaceChildren(el('p', { textContent: texte }), ...(bouton ? [bouton] : []));
     // toutes les lignes d'une requête triée (PostgREST en renvoie 1000 au plus à la fois)
@@ -683,7 +704,7 @@ Connectez-vous, approuvez la charte si ce n'est pas encore fait, et faites le to
         .sort((a, b) => b.le.localeCompare(a.le)); // tri stable : les plus récentes d'abord dans une même journée
 
       let edition = null; // id de la décision en cours de modification
-      const le = el('input', { type: 'date', value: jourParis(Date.now()), ariaLabel: 'Date de la décision' });
+      const le = champDate({ value: jourParis(Date.now()), ariaLabel: 'Date de la décision' });
       const sujet = el('input', { type: 'text', maxLength: 200, placeholder: 'Sujet', ariaLabel: 'Sujet' });
       const texte = el('textarea', { rows: 3, maxLength: 4000, placeholder: 'Décision', ariaLabel: 'Décision' });
       const message = el('p', { className: 'vide' });
@@ -884,7 +905,7 @@ Connectez-vous, approuvez la charte si ce n'est pas encore fait, et faites le to
       };
       const champSemaines = el('input', { type: 'number', min: 1, max: 52, value: semaines, ariaLabel: 'Semaines sans présence' });
       champSemaines.onchange = () => champSemaines.value >= 1 && enregistrer('inactivite_semaines', String(Math.round(champSemaines.value)))();
-      const champDebut = el('input', { type: 'date', value: debut, max: jourParis(Date.now()), ariaLabel: 'Début du suivi' });
+      const champDebut = champDate({ value: debut, max: jourParis(Date.now()), ariaLabel: 'Début du suivi' });
       champDebut.onchange = () => champDebut.value && enregistrer('inactivite_debut', champDebut.value)();
       ouvrir(...haut,
         el('p', {}, 'Sans présence à l’appel depuis plus de ', champSemaines, ' semaines · suivi depuis le ', champDebut),
@@ -995,12 +1016,12 @@ Connectez-vous, approuvez la charte si ce n'est pas encore fait, et faites le to
       if (n !== demandeAbs) return;
       if (error) return blocAbsences.replaceChildren(el('p', { textContent: 'Absences indisponibles pour le moment.' }));
       const date = d => new Date(d + 'T12:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
-      const du = el('input', { type: 'date', min: jourParis(Date.now()), ariaLabel: 'Du' });
-      const au = el('input', { type: 'date', min: jourParis(Date.now()), ariaLabel: 'Au' });
+      const du = champDate({ min: jourParis(Date.now()), ariaLabel: 'Du' });
+      const au = champDate({ min: jourParis(Date.now()), ariaLabel: 'Au' });
       const motif = el('input', { type: 'text', placeholder: 'Motif (facultatif)' });
       const message = el('p', { className: 'vide' });
       const declarer = bouton('Déclarer', '', async () => {
-        if (!du.value || !au.value || au.value < du.value) return message.textContent = 'Indiquez une date de début et une date de fin dans le bon ordre.';
+        if (!du.value || !au.value || au.value < du.value) return message.textContent = 'Indiquez une date de début et une date de fin (jj/mm/aaaa) dans le bon ordre.';
         const { error } = await sb.from('absences').insert({ du: du.value, au: au.value, motif: motif.value.trim() || null });
         if (error) return message.textContent = 'La déclaration a échoué : ' + error.message;
         chargerAbsences();
@@ -1044,7 +1065,7 @@ Connectez-vous, approuvez la charte si ce n'est pas encore fait, et faites le to
     const choixPeriode = (rappel, initial = '3s') => {
       const liste = el('select', { ariaLabel: 'Période' },
         ...Object.entries(PERIODES).map(([v, t]) => el('option', { value: v, textContent: t, selected: v === initial })));
-      const champ = el('input', { type: 'date', max: jourParis(Date.now()), ariaLabel: 'Date de début', hidden: true });
+      const champ = champDate({ max: jourParis(Date.now()), ariaLabel: 'Date de début', hidden: true });
       let affiche;
       liste.onchange = () => {
         champ.hidden = liste.value !== 'date';
